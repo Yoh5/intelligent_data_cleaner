@@ -2,7 +2,7 @@ import './globals.css';  // ← AJOUTE CETTE LIGNE
 
 export const metadata = {
   title: 'Intelligent Data Cleaner',
-  description: 'AI-powered data quality analysis',
+  description: 'AI-powered data cleaning assistant',
 };
 
 export default function RootLayout({
@@ -11,8 +11,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
-      <body className="min-h-screen">{children}</body>
+    <html lang="fr">
+      <body className="antialiased">{children}</body>
     </html>
   );
 }

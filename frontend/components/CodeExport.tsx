@@ -1,96 +1,67 @@
 'use client';
 
-import { useState } from 'react';
-import { CleaningStep, generateCode } from '@/lib/api';
+import React, { useState } from 'react';
 
-interface CodeExportProps {
-  datasetName: string;
-  steps: CleaningStep[];
-  onClear: () => void;
+interface CodeStep {
+  strategy_name: string;
+  column?: string;
+  code: string;
 }
 
-export default function CodeExport({ datasetName, steps, onClear }: CodeExportProps) {
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [generatedScript, setGeneratedScript] = useState<string | null>(null);
-  const [filename, setFilename] = useState('');
+interface CodeExportProps {
+  steps: CodeStep[];
+  generatedScript?: string;
+  filename?: string;
+  onRegenerate?: () => void;
+}
 
-  const handleGenerate = async () => {
-    if (steps.length === 0) return;
-    
-    setIsGenerating(true);
-    try {
-      const response = await generateCode({
-        dataset_name: datasetName,
-        steps
-      });
-      setGeneratedScript(response.script);
-      setFilename(response.filename);
-    } catch (err) {
-      alert('Erreur génération code');
-    } finally {
-      setIsGenerating(false);
+export const CodeExport: React.FC<CodeExportProps> = ({ 
+  steps, 
+  generatedScript, 
+  filename = 'clean_dataset.py',
+  onRegenerate 
+}) => {
+  const [copied, setCopied] = useState(false);
+
+  const copyToClipboard = () => {
+    if (generatedScript) {
+      navigator.clipboard.writeText(generatedScript);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     }
-  };
-
-  const handleDownload = () => {
-    if (!generatedScript) return;
-    
-    const blob = new Blob([generatedScript], { type: 'text/x-python' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
-
-  const handleCopy = () => {
-    if (!generatedScript) return;
-    navigator.clipboard.writeText(generatedScript);
-    alert('Code copié dans le presse-papier !');
   };
 
   if (steps.length === 0) {
     return (
-      <div className="bg-gray-50 rounded-lg p-6 text-center text-gray-500">
+      <div className="p-6 text-center text-gray-500">
         Aucune stratégie sélectionnée. Cliquez sur les problèmes pour choisir des solutions.
       </div>
     );
   }
 
   return (
-    <div className="bg-white rounded-lg shadow p-6 space-y-4">
-      <div className="flex items-center justify-between">
-        // Dans CodeExport.tsx, changez le titre :
-        <h3 className="text-lg font-semibold">
+    <div className="space-y-4">
+      <h3 className="text-lg font-semibold">
         Pipeline de nettoyage ({steps.length} étape{steps.length > 1 ? 's' : ''})
-        </h3>
-        <button
-          onClick={onClear}
-          className="text-red-600 hover:text-red-800 text-sm"
-        >
-          Tout effacer
-        </button>
-      </div>
+      </h3>
 
       {/* Liste des étapes */}
-      <div className="space-y-2 max-h-60 overflow-y-auto">
+      <div className="space-y-2">
         {steps.map((step, idx) => (
-          <div key={idx} className="bg-gray-50 rounded p-3 text-sm">
-            <div className="flex items-center gap-2">
-              <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs">
-                #{idx + 1}
+          <div key={idx} className="bg-gray-50 rounded p-3 border border-gray-200">
+            <div className="flex justify-between items-center mb-2">
+              <span className="font-medium text-gray-700">
+                #{idx + 1} {step.strategy_name}
               </span>
-              <span className="font-medium">{step.strategy_name}</span>
               {step.column && (
-                <span className="text-gray-500">— {step.column}</span>
+                <span className="text-sm text-gray-500">
+                  — {step.column}
+                </span>
               )}
             </div>
-            <code className="text-xs text-gray-600 block mt-1 truncate">
-              {step.code}
-            </code>
+            <pre className="text-xs bg-gray-800 text-gray-100 p-2 rounded overflow-x-auto">
+              <code>{step.code}</code>
+            </pre>
           </div>
         ))}
       </div>
@@ -98,45 +69,27 @@ export default function CodeExport({ datasetName, steps, onClear }: CodeExportPr
       {/* Boutons action */}
       {!generatedScript ? (
         <button
-          onClick={handleGenerate}
-          disabled={isGenerating}
-          className="w-full py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+          onClick={onRegenerate}
+          className="w-full bg-blue-600 text-white py-2 px-4 rounded hover:bg-blue-700 transition-colors"
         >
-          {isGenerating ? 'Génération...' : 'Générer le script Python'}
+          Générer le script Python
         </button>
       ) : (
-        <div className="space-y-3">
-          <div className="bg-gray-900 rounded-lg p-4 max-h-80 overflow-y-auto">
-            <div className="flex justify-between items-center mb-2">
-              <span className="text-gray-400 text-sm">{filename}</span>
-              <button
-                onClick={handleCopy}
-                className="text-green-400 hover:text-green-300 text-sm"
-              >
-                Copier
-              </button>
-            </div>
-            <pre className="text-green-400 text-sm font-mono whitespace-pre-wrap">
-              {generatedScript}
-            </pre>
-          </div>
-          
-          <div className="flex gap-3">
+        <div className="space-y-2">
+          <div className="flex justify-between items-center">
+            <span className="text-sm font-medium text-gray-700">{filename}</span>
             <button
-              onClick={handleDownload}
-              className="flex-1 py-2 bg-green-600 text-white rounded hover:bg-green-700"
+              onClick={copyToClipboard}
+              className="text-sm text-blue-600 hover:text-blue-800"
             >
-              Télécharger .py
-            </button>
-            <button
-              onClick={() => setGeneratedScript(null)}
-              className="flex-1 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300"
-            >
-              Régénérer
+              {copied ? 'Copié !' : 'Copier'}
             </button>
           </div>
+          <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto text-sm">
+            <code className="whitespace-pre-wrap">{generatedScript}</code>
+          </pre>
         </div>
       )}
     </div>
   );
-}
+};
