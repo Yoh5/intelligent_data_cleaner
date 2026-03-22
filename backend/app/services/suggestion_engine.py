@@ -69,45 +69,37 @@ logger.info(f"Converti {col} en numérique")"""
         ))
 
     def _add_imputation(self, col: str, semantic_type: str):
-        """Imputation avec sécurité médiane."""
-        if semantic_type in ['numeric', 'numeric-mixed']:
-            # CORRECTION: Double vérification pour éviter l'erreur sur strings
-            code = f"""# Imputation sécurisée pour {col}
-# Conversion explicite (idempotente si déjà converti)
-df['{col}'] = pd.to_numeric(df['{col}'], errors='coerce')
-if df['{col}'].isna().any():
-    median_val = df['{col}'].median()
-    if pd.notna(median_val):
+        """Ajoute une étape d'imputation avec détection intelligente"""
+        priority = 2
+    
+        if semantic in ['numeric', 'numeric-mixed']:
+        # Pour les colonnes numériques (après conversion), utiliser isna()
+            code = f"""# Imputation des valeurs manquantes pour {col}
+    # Conversion en float si nécessaire et détection des NaN
+    df['{col}'] = pd.to_numeric(df['{col}'], errors='coerce')
+    count_na = df['{col}'].isna().sum()
+    if count_na > 0:
+        median_val = df['{col}'].median()
         df['{col}'] = df['{col}'].fillna(median_val)
-        logger.info(f"Imputation médiane sur {col}: {{median_val:.2f}}")
+        logger.info(f"✓ Imputation médiane sur {col}: {{median_val:.2f}} ({{count_na}} valeurs remplacées)")
     else:
-        df['{col}'] = df['{col}'].fillna(0)
-        logger.warning(f"Imputation avec 0 (toutes valeurs NaN) sur {col}")"""
-            validation = f"df['{col}'].isna().sum() == 0"
-
-        elif semantic_type == 'categorical':
-            code = f"""# Imputation mode pour {col}
-if df['{col}'].isna().any():
-    mode_val = df['{col}'].mode()
-    if len(mode_val) > 0:
-        df['{col}'] = df['{col}'].fillna(mode_val[0])
-    else:
-        df['{col}'] = df['{col}'].fillna('Inconnu')"""
-            validation = f"df['{col}'].isna().sum() == 0"
+        logger.info(f"✓ Pas de valeurs manquantes dans {col}")"""
         else:
-            code = f"""# Imputation constante pour {col}
-df['{col}'] = df['{col}'].fillna('Non spécifié')"""
-            validation = f"df['{col}'].isna().sum() == 0"
-
+        # Pour les colonnes texte, garder la détection de patterns
+            code = f"""# Imputation des valeurs manquantes pour {col}
+    missing_mask = df['{col}'].isin(['', ' ', '  ', '\\t', 'NA', 'N/A', 'null', 'NULL', 'None', 'nan', 'NaN']) | df['{col}'].astype(str).str.strip().eq('')
+    if missing_mask.any():
+        mode_val = df.loc[~missing_mask, '{col}'].mode()[0] if not df.loc[~missing_mask, '{col}'].mode().empty else 'Unknown'
+        df.loc[missing_mask, '{col}'] = mode_val
+        logger.info(f"✓ Imputation mode sur {col}: {{mode_val}} ({{missing_mask.sum()}} valeurs)")"""
+    
         self.steps.append(CleaningStep(
-            step_type='impute',
             column=col,
-            description=f"Imputation des valeurs manquantes dans {col}",
-            code_template=code,
-            priority=10 if semantic_type == 'numeric-mixed' else 5,
-            reason=f"{self.profiles[col].get('missing_count', 0)} valeurs manquantes détectées",
-            validation_check=validation
-        ))
+            operation="imputation",
+            priority=priority,
+            reason=f"Valeurs manquantes détectées",
+            code=code
+    ))
 
     def _add_outlier_detection(self, col: str):
         """Détection outliers avec IQR."""
