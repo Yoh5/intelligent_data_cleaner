@@ -127,8 +127,9 @@ export const autoClean = async (file: File): Promise<AutoCleanResponse> => {
 // ── Execute ──────────────────────────────────────────────────────────────────
 
 export interface ExecuteResponse {
-  csv_base64: string;
+  file_base64: string;
   filename: string;
+  mimetype: string;
   stats: {
     rows_before: number;
     rows_after: number;

@@ -58,15 +58,15 @@ export const CodeExport: React.FC<CodeExportProps> = ({
     URL.revokeObjectURL(url);
   };
 
-  const downloadCsv = (b64: string, csvFilename: string) => {
+  const downloadFile = (b64: string, dlFilename: string, mimeType: string) => {
     const bytes = atob(b64);
     const arr = new Uint8Array(bytes.length);
     for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
-    const blob = new Blob([arr], { type: 'text/csv;charset=utf-8' });
+    const blob = new Blob([arr], { type: mimeType });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = csvFilename;
+    a.download = dlFilename;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -82,8 +82,7 @@ export const CodeExport: React.FC<CodeExportProps> = ({
       const { executeScript } = await import('@/lib/api');
       const result = await executeScript(originalFile, generatedScript);
       setExecuteStats(result.stats);
-      // Auto-download the cleaned CSV
-      downloadCsv(result.csv_base64, result.filename);
+      downloadFile(result.file_base64, result.filename, result.mimetype);
     } catch (err: any) {
       setExecuteError(err.response?.data?.detail || err.message || "Erreur d'exécution");
     } finally {

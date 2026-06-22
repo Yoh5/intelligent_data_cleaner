@@ -170,8 +170,21 @@ class DataProfiler:
         return "text"
 
     def _detect_issues(self, columns_info: Dict) -> List[Dict]:
-        """Détecte tous les problèmes."""
+        """Détecte tous les problèmes de qualité de données."""
         issues = []
+
+        # Global duplicate rows (not just ID columns)
+        dup_rows = int(self.df.duplicated().sum())
+        if dup_rows > 0:
+            issues.append({
+                "column": None,
+                "issue": "duplicate_rows",
+                "type": "duplicate",
+                "severity": "high",
+                "description": f"{dup_rows} lignes entièrement dupliquées dans le dataset",
+                "affected_rows": dup_rows,
+                "semantic_type": None,
+            })
 
         for col, info in columns_info.items():
             # 1. Valeurs manquantes
@@ -186,21 +199,21 @@ class DataProfiler:
                     "rate": info["missing_rate"],
                     "description": f"{info['missing_count']} valeurs manquantes ({info['missing_rate']*100:.1f}%)",
                     "affected_rows": info["missing_count"],
-                    "semantic_type": info["semantic_type"]
+                    "semantic_type": info["semantic_type"],
                 })
 
-            # 2. Types mixtes
+            # 2. Types mixtes (numérique avec texte)
             if info["semantic_type"] == "numeric-mixed":
                 issues.append({
                     "column": col,
                     "issue": "mixed_types",
                     "type": "inconsistent",
                     "severity": "high",
-                    "description": f"Colonne '{col}' contient des nombres et du texte",
-                    "semantic_type": info["semantic_type"]
+                    "description": f"'{col}' contient des nombres et du texte mélangés",
+                    "semantic_type": info["semantic_type"],
                 })
 
-            # 3. Doublons potentiels (pour IDs)
+            # 3. Doublons sur colonne ID
             if info["semantic_type"] == "id" and info["unique_count"] < len(self.df):
                 dup_count = len(self.df) - info["unique_count"]
                 issues.append({
@@ -208,23 +221,56 @@ class DataProfiler:
                     "issue": "duplicate_ids",
                     "type": "duplicate",
                     "severity": "critical",
-                    "description": f"{dup_count} doublons détectés dans l'ID '{col}'",
-                    "affected_rows": dup_count
+                    "description": f"{dup_count} doublons détectés dans l'identifiant '{col}'",
+                    "affected_rows": dup_count,
                 })
 
-            # 4. Problèmes catégoriels
-            if info["semantic_type"] == "categorical" and info["unique_count"] > 10:
+            # 4. Valeurs aberrantes (outliers) pour les colonnes numériques
+            if info["semantic_type"] == "numeric":
+                series = self.df[col].dropna()
+                if len(series) >= 10:
+                    q1, q3 = series.quantile(0.25), series.quantile(0.75)
+                    iqr = q3 - q1
+                    if iqr > 0:
+                        lower, upper = q1 - 3 * iqr, q3 + 3 * iqr
+                        outlier_count = int(((series < lower) | (series > upper)).sum())
+                        if 0 < outlier_count < len(series) * 0.3:
+                            issues.append({
+                                "column": col,
+                                "issue": "outliers",
+                                "type": "outlier",
+                                "severity": "medium",
+                                "description": f"{outlier_count} valeur(s) aberrante(s) dans '{col}' (règle 3×IQR)",
+                                "affected_rows": outlier_count,
+                                "semantic_type": "numeric",
+                            })
+
+            # 5. Espaces superflus dans les colonnes texte / catégorielles
+            if info["semantic_type"] in ("categorical", "text"):
+                series = self.df[col].dropna().astype(str)
+                ws_count = int((series != series.str.strip()).sum())
+                if ws_count > 0:
+                    issues.append({
+                        "column": col,
+                        "issue": "whitespace",
+                        "type": "string_issue",
+                        "severity": "low",
+                        "description": f"{ws_count} valeur(s) avec espaces superflus dans '{col}'",
+                        "affected_rows": ws_count,
+                        "semantic_type": info["semantic_type"],
+                    })
+
+            # 6. Dates stockées comme texte
+            if info["semantic_type"] == "datetime-mixed":
                 issues.append({
                     "column": col,
-                    "issue": "high_cardinality",
+                    "issue": "date_as_string",
                     "type": "inconsistent",
                     "severity": "medium",
-                    "description": f"{info['unique_count']} valeurs uniques (cardinalité élevée)",
-                    "semantic_type": info["semantic_type"]
+                    "description": f"'{col}' contient des dates stockées en texte — conversion nécessaire",
+                    "semantic_type": "datetime-mixed",
                 })
 
-        # Trier par sévérité
         severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
         issues.sort(key=lambda x: severity_order.get(x["severity"], 4))
-
         return issues
