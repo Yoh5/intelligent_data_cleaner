@@ -4,7 +4,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from app.config import settings
-from app.routers import analyze, suggest, generate
+from app.routers import analyze, suggest, generate, auto_clean, execute
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -51,6 +51,8 @@ app.add_middleware(
 app.include_router(analyze.router)
 app.include_router(suggest.router)
 app.include_router(generate.router)
+app.include_router(auto_clean.router)
+app.include_router(execute.router)
 
 @app.get("/")
 async def root():

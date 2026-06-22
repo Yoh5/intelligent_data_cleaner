@@ -32,12 +32,14 @@ interface AnalysisResultProps {
     dataset_info?: { filename: string };
   };
   originalData: Array<Record<string, any>>;
+  originalFile?: File | null;
   onGenerateCode: (code: string) => void;
 }
 
 export const AnalysisResult: React.FC<AnalysisResultProps> = ({
   analysis,
   originalData,
+  originalFile,
   onGenerateCode,
 }) => {
   const [suggestionResults, setSuggestionResults] = useState<BatchStrategyItem[]>([]);
@@ -243,6 +245,7 @@ export const AnalysisResult: React.FC<AnalysisResultProps> = ({
           steps={codeSteps}
           generatedScript={generatedScript}
           filename={scriptFilename}
+          originalFile={originalFile}
           onRegenerate={resetScript}
         />
       )}

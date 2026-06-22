@@ -101,3 +101,56 @@ export const getSuggestionsBatch = async (
   const response = await api.post('/suggest/batch', request);
   return response.data;
 };
+
+// ── Autopilot ────────────────────────────────────────────────────────────────
+
+export interface AutoCleanResponse {
+  script: string | null;
+  filename: string | null;
+  issues_found: number;
+  steps_applied: number;
+  message: string;
+  analysis: {
+    rows: number;
+    columns: number;
+    issues: any[];
+  };
+}
+
+export const autoClean = async (file: File): Promise<AutoCleanResponse> => {
+  const formData = new FormData();
+  formData.append('file', file);
+  const response = await apiFormData.post('/auto-clean/', formData);
+  return response.data;
+};
+
+// ── Execute ──────────────────────────────────────────────────────────────────
+
+export interface ExecuteResponse {
+  csv_base64: string;
+  filename: string;
+  stats: {
+    rows_before: number;
+    rows_after: number;
+    rows_removed: number;
+    null_before: number;
+    null_after: number;
+    null_fixed: number;
+  };
+  logs: string;
+}
+
+export const executeScript = async (file: File, script: string): Promise<ExecuteResponse> => {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('script', script);
+  const response = await apiFormData.post('/execute/', formData);
+  return response.data;
+};
+
+// ── URL ingestion ─────────────────────────────────────────────────────────────
+
+export const analyzeFromUrl = async (url: string): Promise<AnalysisResult> => {
+  const response = await api.post('/analyze/url', { url });
+  return response.data;
+};
