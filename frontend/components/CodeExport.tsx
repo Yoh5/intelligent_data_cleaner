@@ -15,11 +15,11 @@ interface CodeExportProps {
   onRegenerate?: () => void;
 }
 
-export const CodeExport: React.FC<CodeExportProps> = ({ 
-  steps, 
-  generatedScript, 
+export const CodeExport: React.FC<CodeExportProps> = ({
+  steps,
+  generatedScript,
   filename = 'clean_dataset.py',
-  onRegenerate 
+  onRegenerate,
 }) => {
   const [copied, setCopied] = useState(false);
 
@@ -31,21 +31,33 @@ export const CodeExport: React.FC<CodeExportProps> = ({
     }
   };
 
-  if (steps.length === 0) {
+  const download = () => {
+    if (!generatedScript) return;
+    const blob = new Blob([generatedScript], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  if (steps.length === 0 && !generatedScript) {
     return (
       <div className="p-6 text-center text-gray-500">
-        Aucune stratégie sélectionnée. Cliquez sur les problèmes pour choisir des solutions.
+        Cliquez sur les problèmes pour choisir des stratégies de nettoyage.
       </div>
     );
   }
 
   return (
     <div className="space-y-4">
-      <h3 className="text-lg font-semibold">
+      <h3 className="text-lg font-semibold text-gray-800">
         Pipeline de nettoyage ({steps.length} étape{steps.length > 1 ? 's' : ''})
       </h3>
 
-      {/* Liste des étapes */}
       <div className="space-y-2">
         {steps.map((step, idx) => (
           <div key={idx} className="bg-gray-50 rounded p-3 border border-gray-200">
@@ -54,9 +66,7 @@ export const CodeExport: React.FC<CodeExportProps> = ({
                 #{idx + 1} {step.strategy_name}
               </span>
               {step.column && (
-                <span className="text-sm text-gray-500">
-                  — {step.column}
-                </span>
+                <span className="text-sm text-gray-500">— {step.column}</span>
               )}
             </div>
             <pre className="text-xs bg-gray-800 text-gray-100 p-2 rounded overflow-x-auto">
@@ -66,7 +76,6 @@ export const CodeExport: React.FC<CodeExportProps> = ({
         ))}
       </div>
 
-      {/* Boutons action */}
       {!generatedScript ? (
         <button
           onClick={onRegenerate}
@@ -75,19 +84,37 @@ export const CodeExport: React.FC<CodeExportProps> = ({
           Générer le script Python
         </button>
       ) : (
-        <div className="space-y-2">
-          <div className="flex justify-between items-center">
-            <span className="text-sm font-medium text-gray-700">{filename}</span>
-            <button
-              onClick={copyToClipboard}
-              className="text-sm text-blue-600 hover:text-blue-800"
-            >
-              {copied ? 'Copié !' : 'Copier'}
-            </button>
+        <div className="space-y-3">
+          <div className="bg-gray-900 rounded-xl overflow-hidden shadow-2xl">
+            <div className="bg-gray-800 px-4 py-3 flex justify-between items-center">
+              <span className="text-gray-200 font-mono text-sm">{filename}</span>
+              <div className="flex gap-2">
+                <button
+                  onClick={copyToClipboard}
+                  className="text-xs bg-gray-700 hover:bg-gray-600 text-gray-200 px-3 py-1 rounded transition-colors"
+                >
+                  {copied ? 'Copié !' : 'Copier'}
+                </button>
+                <button
+                  onClick={download}
+                  className="text-xs bg-green-700 hover:bg-green-600 text-white px-3 py-1 rounded transition-colors"
+                >
+                  Télécharger
+                </button>
+                {onRegenerate && (
+                  <button
+                    onClick={onRegenerate}
+                    className="text-xs bg-blue-700 hover:bg-blue-600 text-white px-3 py-1 rounded transition-colors"
+                  >
+                    Recommencer
+                  </button>
+                )}
+              </div>
+            </div>
+            <pre className="p-4 overflow-x-auto text-sm text-gray-300 font-mono leading-relaxed max-h-[500px] overflow-y-auto">
+              {generatedScript}
+            </pre>
           </div>
-          <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto text-sm">
-            <code className="whitespace-pre-wrap">{generatedScript}</code>
-          </pre>
         </div>
       )}
     </div>
