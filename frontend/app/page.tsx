@@ -1,9 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { FileUpload } from '@/components/FileUpload';
 import { AnalysisResult } from '@/components/AnalysisResult';
 import { CodeExport } from '@/components/CodeExport';
+import { checkBackendHealth } from '@/lib/api';
 
 type AppState = 'idle' | 'analysis' | 'autopilot';
 
@@ -22,6 +23,14 @@ export default function Home() {
   const [autopilotResult, setAutopilotResult] = useState<AutopilotResult | null>(null);
   const [originalFile, setOriginalFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [backendOffline, setBackendOffline] = useState(false);
+
+  // Health check on mount
+  useEffect(() => {
+    checkBackendHealth().then((ok) => {
+      if (!ok) setBackendOffline(true);
+    });
+  }, []);
 
   const handleAnalysisComplete = (result: any) => {
     setAnalysis(result);
@@ -45,6 +54,16 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-gray-50">
+      {/* Backend offline warning */}
+      {backendOffline && (
+        <div className="bg-red-600 text-white text-sm text-center py-2 px-4">
+          Backend inaccessible — assurez-vous que le serveur tourne sur le port 8000.
+          <button onClick={() => setBackendOffline(false)} className="ml-4 underline hover:no-underline">
+            Ignorer
+          </button>
+        </div>
+      )}
+
       <div className="max-w-6xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
         <div className="text-center mb-12">
           <h1 className="text-4xl font-extrabold text-gray-900 sm:text-5xl mb-4">
@@ -67,6 +86,12 @@ export default function Home() {
             {error && (
               <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg">
                 <p className="text-red-800 text-center text-sm">{error}</p>
+                <button
+                  onClick={() => setError(null)}
+                  className="mt-2 block mx-auto text-xs text-red-600 hover:underline"
+                >
+                  Réessayer
+                </button>
               </div>
             )}
           </div>
@@ -85,7 +110,6 @@ export default function Home() {
               }}
               originalData={[]}
               originalFile={originalFile}
-              onGenerateCode={() => {}}
             />
           </div>
         )}
@@ -105,7 +129,9 @@ export default function Home() {
                   <p className="text-purple-700 text-sm">{autopilotResult.message}</p>
                   <div className="flex gap-6 mt-3">
                     <div className="text-center">
-                      <div className="text-2xl font-bold text-purple-800">{autopilotResult.analysis.rows.toLocaleString()}</div>
+                      <div className="text-2xl font-bold text-purple-800">
+                        {autopilotResult.analysis.rows.toLocaleString()}
+                      </div>
                       <div className="text-xs text-gray-500">Lignes</div>
                     </div>
                     <div className="text-center">
@@ -123,11 +149,7 @@ export default function Home() {
 
             {autopilotResult.script ? (
               <CodeExport
-                steps={autopilotResult.analysis.issues.slice(0, autopilotResult.steps_applied).map((issue: any) => ({
-                  strategy_name: issue.description || issue.issue || issue.type,
-                  column: issue.column,
-                  code: '',
-                }))}
+                steps={[]}
                 generatedScript={autopilotResult.script}
                 filename={autopilotResult.filename || 'auto_clean.py'}
                 originalFile={originalFile}

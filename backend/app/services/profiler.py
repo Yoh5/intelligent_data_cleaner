@@ -2,16 +2,30 @@
 """
 Profiler ultra-robuste pour détecter tous les problèmes de qualité de données.
 """
-import pandas as pd
-import numpy as np
 import io
-from typing import Dict, List, Any, Optional
 from datetime import datetime
+from typing import Any, Dict, List
+
+import numpy as np
+import pandas as pd
+
+
+def _safe_value(v: Any) -> Any:
+    """Convert numpy scalars and Timestamps to JSON-serializable Python types."""
+    if v is None:
+        return None
+    if isinstance(v, float) and (v != v):  # NaN
+        return None
+    if hasattr(v, "item"):  # numpy scalar
+        return v.item()
+    if hasattr(v, "isoformat"):  # Timestamp / datetime
+        return v.isoformat()
+    return v
+
 
 class DataProfiler:
     """Analyse complète d'un dataset."""
 
-    # Patterns de valeurs manquantes
     MISSING_PATTERNS = [
         '', ' ', '  ', '   ', '\t', '\n', 'NA', 'N/A', 'n/a', 'na',
         'NULL', 'null', 'None', 'none', 'NaN', 'nan', 'MISSING', 'missing',
@@ -25,19 +39,22 @@ class DataProfiler:
     async def analyze_file(self, content: bytes, filename: str) -> Dict[str, Any]:
         """Analyse complète d'un fichier CSV/Excel."""
         try:
-            # Chargement avec détection auto
             self.df = await self._load_file(content, filename)
 
             if self.df is None or self.df.empty:
                 raise ValueError("Fichier vide")
 
-            # Analyse colonne par colonne
             columns_info = {}
             for col in self.df.columns:
                 columns_info[col] = self._analyze_column(col)
 
-            # Détection des problèmes
             self.issues = self._detect_issues(columns_info)
+
+            # Sample rows — first 5 rows, fully JSON-serializable
+            sample_rows = [
+                {k: _safe_value(v) for k, v in row.items()}
+                for row in self.df.head(5).to_dict(orient="records")
+            ]
 
             return {
                 "id": str(datetime.now().timestamp()),
@@ -46,15 +63,16 @@ class DataProfiler:
                     "filename": filename,
                     "rows": len(self.df),
                     "columns": len(self.df.columns),
-                    "size_bytes": len(content)
+                    "size_bytes": len(content),
                 },
                 "shape": [len(self.df), len(self.df.columns)],
                 "columns": columns_info,
                 "issues": self.issues,
                 "raw_profile": {
                     "dtypes": {col: str(self.df[col].dtype) for col in self.df.columns},
-                    "total_missing": int(self.df.isna().sum().sum())
-                }
+                    "total_missing": int(self.df.isna().sum().sum()),
+                    "sample_rows": sample_rows,
+                },
             }
 
         except Exception as e:
@@ -64,64 +82,63 @@ class DataProfiler:
 
     async def _load_file(self, content: bytes, filename: str) -> pd.DataFrame:
         """Chargement robuste avec auto-détection."""
-        filename = filename.lower()
+        filename_lower = filename.lower()
 
-        if filename.endswith('.csv'):
-            # Essayer différents encodages
-            for encoding in ['utf-8', 'latin-1', 'iso-8859-1', 'cp1252']:
+        if filename_lower.endswith(".csv"):
+            for encoding in ["utf-8", "latin-1", "iso-8859-1", "cp1252"]:
                 try:
-                    # Détection du délimiteur
-                    sample = content[:2000].decode(encoding, errors='ignore')
-                    delimiter = ','
-                    if sample.count(';') > sample.count(','):
-                        delimiter = ';'
-
+                    sample = content[:2000].decode(encoding, errors="ignore")
+                    delimiter = ";" if sample.count(";") > sample.count(",") else ","
                     df = pd.read_csv(
                         io.BytesIO(content),
                         encoding=encoding,
                         delimiter=delimiter,
                         na_values=self.MISSING_PATTERNS,
                         keep_default_na=True,
-                        low_memory=False
+                        low_memory=False,
                     )
-
-                    # Normaliser les noms de colonnes
-                    df.columns = df.columns.astype(str).str.strip().str.lower().str.replace(' ', '_')
+                    df.columns = self._sanitize_columns(df.columns)
                     return df
-
-                except Exception as e:
+                except Exception:
                     continue
-
             raise ValueError("Impossible de lire le CSV")
 
-        elif filename.endswith(('.xlsx', '.xls')):
+        elif filename_lower.endswith((".xlsx", ".xls")):
             df = pd.read_excel(io.BytesIO(content))
-            df.columns = df.columns.astype(str).str.strip().str.lower().str.replace(' ', '_')
+            df.columns = self._sanitize_columns(df.columns)
             return df
 
         else:
             raise ValueError("Format non supporté")
 
+    @staticmethod
+    def _sanitize_columns(columns) -> pd.Index:
+        """Normalize column names to valid, safe Python identifiers."""
+        return (
+            columns.astype(str)
+            .str.strip()
+            .str.lower()
+            .str.replace(r"['\"]", "", regex=True)       # remove quotes → safe in string literals
+            .str.replace(r"\s+", "_", regex=True)        # spaces → underscore
+            .str.replace(r"[^a-z0-9_]", "_", regex=True) # other special → underscore
+            .str.replace(r"_+", "_", regex=True)          # collapse multiple underscores
+            .str.strip("_")                               # strip leading/trailing underscores
+        )
+
     def _analyze_column(self, col: str) -> Dict[str, Any]:
         """Analyse détaillée d'une colonne."""
         series = self.df[col]
+        n = len(series)
 
-        # Type actuel
         dtype = str(series.dtype)
-
-        # Valeurs manquantes
         missing_count = int(series.isna().sum())
-        missing_rate = float(missing_count / len(series))
-
-        # Valeurs uniques
+        missing_rate = float(missing_count / n) if n > 0 else 0.0
         unique_count = int(series.nunique())
-        unique_rate = float(unique_count / len(series))
-
-        # Inférence du type sémantique
+        unique_rate = float(unique_count / n) if n > 0 else 0.0
         semantic_type = self._infer_semantic_type(series, col)
 
-        # Échantillon de valeurs
-        sample_values = series.dropna().head(5).tolist()
+        # Safely convert sample values (handles numpy int64, float64, etc.)
+        sample_values = [_safe_value(v) for v in series.dropna().head(5)]
 
         return {
             "name": col,
@@ -131,7 +148,7 @@ class DataProfiler:
             "unique_count": unique_count,
             "unique_rate": unique_rate,
             "semantic_type": semantic_type,
-            "sample_values": sample_values
+            "sample_values": sample_values,
         }
 
     def _infer_semantic_type(self, series: pd.Series, col_name: str) -> str:
@@ -142,29 +159,28 @@ class DataProfiler:
         if pd.api.types.is_numeric_dtype(series):
             return "numeric"
 
-        # Test si numérique caché
-        if series.dtype == 'object':
-            # Essayer de convertir un échantillon
+        if series.dtype == "object":
             sample = series.dropna().head(100)
             if len(sample) > 0:
-                converted = pd.to_numeric(sample.astype(str).str.replace(',', '.').str.replace(' ', ''), errors='coerce')
+                converted = pd.to_numeric(
+                    sample.astype(str).str.replace(",", ".").str.replace(" ", ""),
+                    errors="coerce",
+                )
                 if converted.notna().sum() / len(sample) > 0.7:
                     return "numeric-mixed"
 
-                # Test datetime
                 try:
-                    pd.to_datetime(sample, errors='raise')
+                    pd.to_datetime(sample, errors="raise")
                     return "datetime-mixed"
-                except:
+                except Exception:
                     pass
 
-        # ID potentiel
-        if any(x in col_name.lower() for x in ['id', 'code', 'ref']):
-            if series.nunique() / len(series) > 0.9:
+        if any(x in col_name.lower() for x in ("id", "code", "ref")):
+            n = len(series)
+            if n > 0 and series.nunique() / n > 0.9:
                 return "id"
 
-        # Catégoriel
-        if series.nunique() < 20 or (series.nunique() / len(series)) < 0.05:
+        if series.nunique() < 20 or (len(series) > 0 and series.nunique() / len(series) < 0.05):
             return "categorical"
 
         return "text"
@@ -173,7 +189,7 @@ class DataProfiler:
         """Détecte tous les problèmes de qualité de données."""
         issues = []
 
-        # Global duplicate rows (not just ID columns)
+        # Global duplicate rows
         dup_rows = int(self.df.duplicated().sum())
         if dup_rows > 0:
             issues.append({
@@ -189,20 +205,21 @@ class DataProfiler:
         for col, info in columns_info.items():
             # 1. Valeurs manquantes
             if info["missing_count"] > 0:
-                severity = "critical" if info["missing_rate"] > 0.3 else "high" if info["missing_rate"] > 0.1 else "medium"
+                rate = info["missing_rate"]
+                severity = "critical" if rate > 0.3 else "high" if rate > 0.1 else "medium"
                 issues.append({
                     "column": col,
                     "issue": "missing_values",
                     "type": "missing",
                     "severity": severity,
                     "count": info["missing_count"],
-                    "rate": info["missing_rate"],
-                    "description": f"{info['missing_count']} valeurs manquantes ({info['missing_rate']*100:.1f}%)",
+                    "rate": rate,
+                    "description": f"{info['missing_count']} valeurs manquantes ({rate*100:.1f}%)",
                     "affected_rows": info["missing_count"],
                     "semantic_type": info["semantic_type"],
                 })
 
-            # 2. Types mixtes (numérique avec texte)
+            # 2. Types mixtes
             if info["semantic_type"] == "numeric-mixed":
                 issues.append({
                     "column": col,
@@ -225,11 +242,11 @@ class DataProfiler:
                     "affected_rows": dup_count,
                 })
 
-            # 4. Valeurs aberrantes (outliers) pour les colonnes numériques
+            # 4. Valeurs aberrantes (outliers) — colonnes numériques
             if info["semantic_type"] == "numeric":
                 series = self.df[col].dropna()
                 if len(series) >= 10:
-                    q1, q3 = series.quantile(0.25), series.quantile(0.75)
+                    q1, q3 = float(series.quantile(0.25)), float(series.quantile(0.75))
                     iqr = q3 - q1
                     if iqr > 0:
                         lower, upper = q1 - 3 * iqr, q3 + 3 * iqr
@@ -245,7 +262,7 @@ class DataProfiler:
                                 "semantic_type": "numeric",
                             })
 
-            # 5. Espaces superflus dans les colonnes texte / catégorielles
+            # 5. Espaces superflus (texte / catégoriel)
             if info["semantic_type"] in ("categorical", "text"):
                 series = self.df[col].dropna().astype(str)
                 ws_count = int((series != series.str.strip()).sum())
@@ -272,5 +289,5 @@ class DataProfiler:
                 })
 
         severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
-        issues.sort(key=lambda x: severity_order.get(x["severity"], 4))
+        issues.sort(key=lambda x: severity_order.get(x.get("severity", "low"), 4))
         return issues

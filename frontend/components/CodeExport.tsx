@@ -1,20 +1,12 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import type { ExecuteStats } from '@/lib/api';
 
 interface CodeStep {
   strategy_name: string;
   column?: string;
   code: string;
-}
-
-interface ExecuteStats {
-  rows_before: number;
-  rows_after: number;
-  rows_removed: number;
-  null_before: number;
-  null_after: number;
-  null_fixed: number;
 }
 
 interface CodeExportProps {
@@ -36,6 +28,12 @@ export const CodeExport: React.FC<CodeExportProps> = ({
   const [isExecuting, setIsExecuting] = useState(false);
   const [executeStats, setExecuteStats] = useState<ExecuteStats | null>(null);
   const [executeError, setExecuteError] = useState<string | null>(null);
+
+  // Reset execution state when the script changes (e.g., after "Recommencer")
+  useEffect(() => {
+    setExecuteStats(null);
+    setExecuteError(null);
+  }, [generatedScript]);
 
   const copyToClipboard = () => {
     if (generatedScript) {
@@ -81,10 +79,10 @@ export const CodeExport: React.FC<CodeExportProps> = ({
     try {
       const { executeScript } = await import('@/lib/api');
       const result = await executeScript(originalFile, generatedScript);
-      setExecuteStats(result.stats);
+      if (result.stats) setExecuteStats(result.stats);
       downloadFile(result.file_base64, result.filename, result.mimetype);
     } catch (err: any) {
-      setExecuteError(err.response?.data?.detail || err.message || "Erreur d'exécution");
+      setExecuteError(err.message || "Erreur d'exécution");
     } finally {
       setIsExecuting(false);
     }
@@ -98,28 +96,33 @@ export const CodeExport: React.FC<CodeExportProps> = ({
     );
   }
 
+  const isExcel = originalFile?.name.match(/\.(xlsx|xls)$/i);
+
   return (
     <div className="space-y-4">
-      <h3 className="text-lg font-semibold text-gray-800">
-        Pipeline de nettoyage ({steps.length} étape{steps.length > 1 ? 's' : ''})
-      </h3>
-
-      {/* Steps list */}
-      <div className="space-y-2">
-        {steps.map((step, idx) => (
-          <div key={idx} className="bg-gray-50 rounded p-3 border border-gray-200">
-            <div className="flex justify-between items-center mb-2">
-              <span className="font-medium text-gray-700">
-                #{idx + 1} {step.strategy_name}
-              </span>
-              {step.column && <span className="text-sm text-gray-500">— {step.column}</span>}
-            </div>
-            <pre className="text-xs bg-gray-800 text-gray-100 p-2 rounded overflow-x-auto">
-              <code>{step.code}</code>
-            </pre>
+      {/* Steps list — only shown when steps have code content */}
+      {steps.length > 0 && steps.some((s) => s.code) && (
+        <>
+          <h3 className="text-lg font-semibold text-gray-800">
+            Pipeline de nettoyage ({steps.length} étape{steps.length > 1 ? 's' : ''})
+          </h3>
+          <div className="space-y-2">
+            {steps.map((step, idx) => (
+              <div key={idx} className="bg-gray-50 rounded p-3 border border-gray-200">
+                <div className="flex justify-between items-center mb-2">
+                  <span className="font-medium text-gray-700">
+                    #{idx + 1} {step.strategy_name}
+                  </span>
+                  {step.column && <span className="text-sm text-gray-500">— {step.column}</span>}
+                </div>
+                <pre className="text-xs bg-gray-800 text-gray-100 p-2 rounded overflow-x-auto">
+                  <code>{step.code}</code>
+                </pre>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+        </>
+      )}
 
       {/* Generated script */}
       {generatedScript && (
@@ -154,7 +157,9 @@ export const CodeExport: React.FC<CodeExportProps> = ({
                         </svg>
                         Exécution...
                       </>
-                    ) : 'Exécuter & Télécharger CSV'}
+                    ) : (
+                      `Exécuter & Télécharger ${isExcel ? '.xlsx' : '.csv'}`
+                    )}
                   </button>
                 )}
                 {onRegenerate && (
@@ -172,14 +177,12 @@ export const CodeExport: React.FC<CodeExportProps> = ({
             </pre>
           </div>
 
-          {/* Execute error */}
           {executeError && (
             <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">
               {executeError}
             </div>
           )}
 
-          {/* Execute stats */}
           {executeStats && (
             <div className="bg-green-50 border border-green-200 rounded-xl p-5">
               <h4 className="font-semibold text-green-800 mb-3">Script exécuté avec succès</h4>
@@ -192,13 +195,11 @@ export const CodeExport: React.FC<CodeExportProps> = ({
                   </div>
                   <div className="text-xs text-gray-500 mt-1">Lignes</div>
                   {executeStats.rows_removed > 0 && (
-                    <div className="text-xs text-orange-600">−{executeStats.rows_removed} doublons</div>
+                    <div className="text-xs text-orange-600">−{executeStats.rows_removed} supprimées</div>
                   )}
                 </div>
                 <div className="bg-white rounded-lg p-3 shadow-sm text-center">
-                  <div className="text-xl font-bold text-green-600">
-                    {executeStats.null_fixed}
-                  </div>
+                  <div className="text-xl font-bold text-green-600">{executeStats.null_fixed}</div>
                   <div className="text-xs text-gray-500 mt-1">Valeurs manquantes corrigées</div>
                 </div>
                 <div className="bg-white rounded-lg p-3 shadow-sm text-center">
@@ -211,7 +212,7 @@ export const CodeExport: React.FC<CodeExportProps> = ({
                 </div>
               </div>
               <p className="text-xs text-green-700 mt-3">
-                Le CSV nettoyé a été téléchargé automatiquement.
+                Le fichier nettoyé a été téléchargé automatiquement.
               </p>
             </div>
           )}

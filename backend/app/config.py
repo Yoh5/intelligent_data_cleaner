@@ -1,16 +1,22 @@
-from pydantic_settings import BaseSettings
 from functools import lru_cache
+from typing import List
+
+from pydantic_settings import BaseSettings
+
 
 class Settings(BaseSettings):
     APP_NAME: str = "Intelligent Data Cleaner API"
     VERSION: str = "1.0.0"
-    DEBUG: bool = True
-    
+    DEBUG: bool = False
+    CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:5173"]
+
     class Config:
         env_file = ".env"
+
 
 @lru_cache()
 def get_settings():
     return Settings()
+
 
 settings = get_settings()

@@ -1,44 +1,52 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { getSuggestionsBatch, generateCode, type BatchStrategyItem, type CleaningStrategy } from "@/lib/api";
 import { IssueCard } from "./IssueCard";
 import { SuggestionModal } from "./SuggestionModal";
 import { CodeExport } from "./CodeExport";
 
+interface ColumnInfo {
+  name: string;
+  dtype: string;
+  missing_count: number;
+  missing_rate: number;
+  unique_count: number;
+  sample_values: any[];
+  semantic_type?: string;
+}
+
+interface IssueInfo {
+  column: string | null;
+  issue: string;
+  type?: string;
+  severity: "high" | "medium" | "low" | "critical";
+  count?: number;
+  rate?: number;
+  semantic_type?: string;
+  description?: string;
+  affected_rows?: number;
+}
+
 interface AnalysisResultProps {
   analysis: {
     shape: [number, number];
-    columns: Record<string, {
-      name: string;
-      dtype: string;
-      missing_count: number;
-      missing_rate: number;
-      unique_count: number;
-      sample_values: any[];
-      semantic_type?: string;
-    }>;
-    issues: Array<{
-      column: string;
-      issue: string;
-      type?: string;
-      severity: "high" | "medium" | "low" | "critical";
-      count?: number;
-      rate?: number;
-      semantic_type?: string;
-      description?: string;
-      affected_rows?: number;
-    }>;
+    columns: Record<string, ColumnInfo>;
+    issues: IssueInfo[];
     dataset_info?: { filename: string };
+    raw_profile?: {
+      sample_rows?: Array<Record<string, any>>;
+      dtypes?: Record<string, string>;
+      total_missing?: number;
+    };
   };
   originalData: Array<Record<string, any>>;
   originalFile?: File | null;
-  onGenerateCode: (code: string) => void;
+  onGenerateCode?: (code: string) => void;
 }
 
 export const AnalysisResult: React.FC<AnalysisResultProps> = ({
   analysis,
-  originalData,
   originalFile,
   onGenerateCode,
 }) => {
@@ -50,9 +58,14 @@ export const AnalysisResult: React.FC<AnalysisResultProps> = ({
   const [generatedScript, setGeneratedScript] = useState<string | null>(null);
   const [scriptFilename, setScriptFilename] = useState("clean_dataset.py");
   const [error, setError] = useState<string | null>(null);
+  const [showPreview, setShowPreview] = useState(false);
+
+  // Stable key: only re-fetch suggestions when the file or issue count changes
+  const analysisKey = `${analysis.dataset_info?.filename ?? "unknown"}-${analysis.issues.length}`;
 
   useEffect(() => {
     const fetchSuggestions = async () => {
+      setLoadingSuggestions(true);
       if (analysis.issues.length === 0) {
         setLoadingSuggestions(false);
         return;
@@ -68,7 +81,7 @@ export const AnalysisResult: React.FC<AnalysisResultProps> = ({
           sample_data: [],
         });
         setSuggestionResults(result.results);
-        // Auto-select the recommended strategy for each issue
+        // Auto-select recommended strategy per issue
         const autoSelected: Record<number, CleaningStrategy> = {};
         result.results.forEach((r, idx) => {
           if (r.strategies.length > 0) {
@@ -77,23 +90,33 @@ export const AnalysisResult: React.FC<AnalysisResultProps> = ({
         });
         setSelectedStrategies(autoSelected);
       } catch {
-        // Suggestions failed silently; user can still generate with defaults
+        // Fail silently — user can still generate with defaults
       } finally {
         setLoadingSuggestions(false);
       }
     };
     fetchSuggestions();
-  }, [analysis]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [analysisKey]);
 
   const handleStrategySelect = (issueIdx: number, strategy: CleaningStrategy) => {
     setSelectedStrategies((prev) => ({ ...prev, [issueIdx]: strategy }));
     setActiveModal(null);
   };
 
+  const handleSelectAll = () => {
+    const all: Record<number, CleaningStrategy> = {};
+    suggestionResults.forEach((r, idx) => {
+      if (r.strategies.length > 0) {
+        all[idx] = r.strategies[r.recommended ?? 0];
+      }
+    });
+    setSelectedStrategies(all);
+  };
+
   const handleGenerateCode = async () => {
     const steps = Object.entries(selectedStrategies).map(([idxStr, strategy]) => {
-      const idx = Number(idxStr);
-      const issue = analysis.issues[idx];
+      const issue = analysis.issues[Number(idxStr)];
       return {
         column: issue.column,
         issue_type: issue.issue || issue.type || "unknown",
@@ -109,15 +132,16 @@ export const AnalysisResult: React.FC<AnalysisResultProps> = ({
 
     setIsGenerating(true);
     setError(null);
-
     try {
       const response = await generateCode({
         dataset_name: analysis.dataset_info?.filename || "dataset.csv",
         steps,
       });
       setGeneratedScript(response.script);
-      setScriptFilename(response.filename || `clean_${analysis.dataset_info?.filename?.split(".")[0]}.py`);
-      onGenerateCode(response.script);
+      setScriptFilename(
+        response.filename || `clean_${analysis.dataset_info?.filename?.split(".")[0]}.py`
+      );
+      onGenerateCode?.(response.script);
     } catch (err: any) {
       setError(err.message || "Erreur lors de la génération du script");
     } finally {
@@ -130,13 +154,24 @@ export const AnalysisResult: React.FC<AnalysisResultProps> = ({
     setScriptFilename("clean_dataset.py");
   };
 
-  const codeSteps = Object.entries(selectedStrategies).map(([idxStr, strategy]) => ({
-    strategy_name: strategy.name,
-    column: analysis.issues[Number(idxStr)]?.column || undefined,
-    code: strategy.code_preview,
-  }));
+  const codeSteps = useMemo(
+    () =>
+      Object.entries(selectedStrategies).map(([idxStr, strategy]) => ({
+        strategy_name: strategy.name,
+        column: analysis.issues[Number(idxStr)]?.column ?? undefined,
+        code: strategy.code_preview,
+      })),
+    [selectedStrategies, analysis.issues]
+  );
 
   const selectedCount = Object.keys(selectedStrategies).length;
+  const allSelected =
+    !loadingSuggestions &&
+    analysis.issues.length > 0 &&
+    selectedCount === analysis.issues.length;
+
+  const sampleRows = analysis.raw_profile?.sample_rows;
+  const sampleColumns = sampleRows && sampleRows.length > 0 ? Object.keys(sampleRows[0]) : [];
 
   return (
     <div className="space-y-6">
@@ -163,19 +198,76 @@ export const AnalysisResult: React.FC<AnalysisResultProps> = ({
             <div className="text-sm text-gray-600">Critiques</div>
           </div>
         </div>
+
+        {/* Data preview toggle */}
+        {sampleRows && sampleRows.length > 0 && (
+          <button
+            onClick={() => setShowPreview((v) => !v)}
+            className="mt-4 text-sm text-blue-600 hover:text-blue-800 font-medium"
+          >
+            {showPreview ? '▲ Masquer l\'aperçu' : '▼ Aperçu des données (5 premières lignes)'}
+          </button>
+        )}
       </div>
+
+      {/* Data preview table */}
+      {showPreview && sampleRows && sampleColumns.length > 0 && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+          <div className="p-3 bg-gray-50 border-b border-gray-200">
+            <span className="text-sm font-medium text-gray-700">Aperçu — {sampleColumns.length} colonnes</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-200">
+                  {sampleColumns.map((col) => (
+                    <th key={col} className="px-3 py-2 text-left font-medium text-gray-600 whitespace-nowrap">
+                      {col}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {sampleRows.map((row, i) => (
+                  <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                    {sampleColumns.map((col) => (
+                      <td key={col} className="px-3 py-1.5 text-gray-700 whitespace-nowrap max-w-[200px] truncate">
+                        {row[col] == null ? (
+                          <span className="text-red-400 italic">null</span>
+                        ) : (
+                          String(row[col])
+                        )}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Issues */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        <div className="p-4 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
+        <div className="p-4 bg-gray-50 border-b border-gray-200 flex justify-between items-center flex-wrap gap-2">
           <h3 className="font-semibold text-gray-800">Problèmes identifiés</h3>
-          {loadingSuggestions ? (
-            <span className="text-sm text-gray-400 animate-pulse">Chargement des stratégies...</span>
-          ) : (
-            <span className="text-sm text-gray-500">
-              {selectedCount}/{analysis.issues.length} stratégie{selectedCount > 1 ? "s" : ""} sélectionnée{selectedCount > 1 ? "s" : ""}
-            </span>
-          )}
+          <div className="flex items-center gap-3">
+            {!loadingSuggestions && !allSelected && analysis.issues.length > 0 && (
+              <button
+                onClick={handleSelectAll}
+                className="text-xs bg-blue-50 hover:bg-blue-100 text-blue-700 px-3 py-1.5 rounded-lg font-medium transition-colors"
+              >
+                Tout sélectionner
+              </button>
+            )}
+            {loadingSuggestions ? (
+              <span className="text-sm text-gray-400 animate-pulse">Chargement des stratégies...</span>
+            ) : (
+              <span className="text-sm text-gray-500">
+                {selectedCount}/{analysis.issues.length} stratégie{selectedCount > 1 ? "s" : ""} sélectionnée{selectedCount > 1 ? "s" : ""}
+              </span>
+            )}
+          </div>
         </div>
 
         <div className="p-4 space-y-3">
@@ -211,12 +303,10 @@ export const AnalysisResult: React.FC<AnalysisResultProps> = ({
 
       {/* Error */}
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-red-700">
-          {error}
-        </div>
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-red-700">{error}</div>
       )}
 
-      {/* Generate button (hidden once script is generated) */}
+      {/* Generate button */}
       {!generatedScript && (
         <button
           onClick={handleGenerateCode}
@@ -250,7 +340,7 @@ export const AnalysisResult: React.FC<AnalysisResultProps> = ({
         />
       )}
 
-      {/* Strategy picker modal */}
+      {/* Strategy modal */}
       {activeModal !== null && (
         <SuggestionModal
           issue={{

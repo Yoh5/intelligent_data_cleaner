@@ -48,7 +48,7 @@ async def execute_script(
 
         # Run the script in a thread pool — avoids Windows SelectorEventLoop limitations
         cmd = [sys.executable, script_path, "--input", input_path, "--output", output_csv_path]
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         try:
             result = await loop.run_in_executor(
                 None,
@@ -77,7 +77,7 @@ async def execute_script(
             raise HTTPException(status_code=500, detail="Script produced no output file")
 
         # Before/after stats
-        stats: dict = {}
+        stats: dict | None = None
         try:
             df_before = (
                 pd.read_excel(io.BytesIO(content))

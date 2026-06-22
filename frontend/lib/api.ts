@@ -1,13 +1,30 @@
-import axios from 'axios';
+import axios, { AxiosError } from 'axios';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
+const normalizeError = (err: unknown): never => {
+  if (err instanceof AxiosError) {
+    const detail = err.response?.data?.detail;
+    const msg =
+      typeof detail === 'string'
+        ? detail
+        : Array.isArray(detail)
+        ? detail.map((d: any) => d.msg || JSON.stringify(d)).join(', ')
+        : err.message || 'Erreur inconnue';
+    throw new Error(msg);
+  }
+  throw err;
+};
 
 export const api = axios.create({
   baseURL: API_URL,
   headers: { 'Content-Type': 'application/json' },
+  timeout: 60000,
 });
+api.interceptors.response.use((r) => r, normalizeError);
 
-const apiFormData = axios.create({ baseURL: API_URL });
+const apiFormData = axios.create({ baseURL: API_URL, timeout: 120000 });
+apiFormData.interceptors.response.use((r) => r, normalizeError);
 
 export interface DatasetInfo {
   filename: string;
@@ -19,10 +36,11 @@ export interface DatasetInfo {
 
 export interface IssueDetected {
   type: string;
-  severity: 'high' | 'medium' | 'low';
+  severity: 'high' | 'medium' | 'low' | 'critical';
   column: string | null;
   description: string;
   affected_rows: number | null;
+  semantic_type?: string;
 }
 
 export interface AnalysisResult {
@@ -31,7 +49,11 @@ export interface AnalysisResult {
   dataset_info: DatasetInfo;
   issues: IssueDetected[];
   profile_html?: string;
-  raw_profile?: Record<string, any>;
+  raw_profile?: {
+    dtypes?: Record<string, string>;
+    total_missing?: number;
+    sample_rows?: Array<Record<string, any>>;
+  };
 }
 
 export const analyzeFile = async (file: File): Promise<AnalysisResult> => {
@@ -126,18 +148,20 @@ export const autoClean = async (file: File): Promise<AutoCleanResponse> => {
 
 // ── Execute ──────────────────────────────────────────────────────────────────
 
+export interface ExecuteStats {
+  rows_before: number;
+  rows_after: number;
+  rows_removed: number;
+  null_before: number;
+  null_after: number;
+  null_fixed: number;
+}
+
 export interface ExecuteResponse {
   file_base64: string;
   filename: string;
   mimetype: string;
-  stats: {
-    rows_before: number;
-    rows_after: number;
-    rows_removed: number;
-    null_before: number;
-    null_after: number;
-    null_fixed: number;
-  };
+  stats: ExecuteStats | null;
   logs: string;
 }
 
@@ -154,4 +178,15 @@ export const executeScript = async (file: File, script: string): Promise<Execute
 export const analyzeFromUrl = async (url: string): Promise<AnalysisResult> => {
   const response = await api.post('/analyze/url', { url });
   return response.data;
+};
+
+// ── Health check ──────────────────────────────────────────────────────────────
+
+export const checkBackendHealth = async (): Promise<boolean> => {
+  try {
+    const response = await api.get('/', { timeout: 5000 });
+    return response.status === 200;
+  } catch {
+    return false;
+  }
 };
