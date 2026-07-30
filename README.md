@@ -2,6 +2,8 @@
 
 Plateforme web d'analyse et de nettoyage automatisé de données CSV/Excel. Détecte les problèmes de qualité de données, propose des stratégies de nettoyage contextuelles et génère des scripts Python autonomes, validés syntaxiquement et prêts à l'emploi.
 
+**Couche agentique** : un conseiller LLM **raisonne sur les données réelles** (types, sévérité, échantillon) pour **choisir ET justifier** la meilleure stratégie par problème — avec **repli rule-based automatique** si aucune clé OpenAI n'est configurée (l'app reste 100 % fonctionnelle sans LLM).
+
 ![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.104+-green.svg)
 ![Next.js](https://img.shields.io/badge/Next.js-16+-black.svg)
@@ -24,6 +26,12 @@ Plateforme web d'analyse et de nettoyage automatisé de données CSV/Excel. Dét
   - Valeurs aberrantes (règle 3×IQR sur colonnes numériques)
   - Espaces superflus (texte/catégoriel)
   - Dates stockées en texte
+
+### Décision agentique (conseiller LLM)
+Quand une clé OpenAI est configurée, un conseiller LLM (`services/advisor.py`) lit le contexte du dataset (types de colonnes, problèmes, échantillon) et, pour chaque problème, **choisit la meilleure stratégie parmi les candidates ET la justifie** en une phrase (`rationale`). C'est le passage d'un moteur *déterministe* à un agent qui *décide en fonction des données*.
+- Utilisé par `/suggest/batch` (recommandation + justification) et par l'**Autopilot** (`/auto-clean/`, choix par problème).
+- **Fail-open total** : sans clé, erreur réseau/LLM ou JSON illisible → repli sur la stratégie rule-based recommandée (`recommended = 0`). L'app ne dépend jamais du LLM.
+- Réponses des endpoints : champ `advisor_used` (bool) pour savoir si le LLM a effectivement pesé.
 
 ### Stratégies de nettoyage
 Chaque problème reçoit 2 à 4 stratégies adaptées au type sémantique de la colonne :
@@ -91,11 +99,19 @@ npm run lint
 docker-compose up --build
 ```
 
+### Tests
+```bash
+cd backend
+python -m pytest tests/ -q     # conseiller LLM monkeypatché — aucun réseau, aucune clé requise
+```
+Couvre le conseiller agentique : mapping des choix, respect des bornes (index invalides ignorés) et **fail-open** (LLM absent / erreur / JSON illisible → repli rule-based).
+
 ### Variables d'environnement
 
 | Variable | Défaut | Description |
 |---|---|---|
-| `OPENAI_API_KEY` | — | Clé OpenAI (réservée — suggestions actuellement rule-based) |
+| `OPENAI_API_KEY` | — | Clé OpenAI — **active le conseiller LLM** (choix + justification des stratégies). Absente → repli 100 % rule-based |
+| `OPENAI_MODEL` | `gpt-4o-mini` | Modèle du conseiller LLM |
 | `CORS_ORIGINS` | `["http://localhost:3000","http://localhost:5173"]` | Origines autorisées |
 | `DEBUG` | `false` | Mode debug FastAPI |
 | `NEXT_PUBLIC_API_URL` | `http://localhost:8000` | URL du backend (frontend) |
@@ -109,16 +125,17 @@ Créez un fichier `backend/.env` pour surcharger les valeurs par défaut.
 ```
 POST /analyze/        → DataProfiler → profil complet + issues
 POST /analyze/url     → fetch HTTP → DataProfiler (même pipeline)
-POST /suggest/batch   → stratégies rule-based par issue + type sémantique
+POST /suggest/batch   → stratégies rule-based + conseiller LLM (choix + justification, fail-open)
 POST /generate/       → assemblage + validation AST → script .py
-POST /auto-clean/     → analyze + suggest + generate en une passe
+POST /auto-clean/     → analyze + choix agentique par problème + generate en une passe
 POST /execute/        → subprocess.run du script + retour fichier nettoyé
 ```
 
 ### Backend (`backend/app/`)
 
 - **`services/profiler.py`** — Moteur central. Charge, normalise les noms de colonnes (supprime les caractères spéciaux pouvant casser les string literals Python), infère les types sémantiques, détecte les problèmes. Expose `sample_rows` pour l'aperçu frontend.
-- **`routers/suggest.py`** — Stratégies rule-based contextuelles. Chaque stratégie expose `code_preview` (le code exact qui sera injecté dans le script final).
+- **`services/advisor.py`** — Conseiller LLM (couche agentique). `advise()` raisonne sur le contexte du dataset et renvoie, par problème, l'index de la meilleure stratégie + une justification. Appel LLM isolé (`_call_llm`, monkeypatché dans les tests), fail-open (`{}` = repli rule-based).
+- **`routers/suggest.py`** — Stratégies rule-based contextuelles + arbitrage par le conseiller LLM. Chaque stratégie expose `code_preview` (le code exact qui sera injecté dans le script final).
 - **`routers/generate.py`** — Assemble le script complet, valide avec `ast.parse`, auto-corrige les méthodes dépréciées.
 - **`routers/auto_clean.py`** — Orchestrateur : appelle le profiler, choisit la première stratégie recommandée pour chaque issue, génère le script en une passe.
 - **`routers/execute.py`** — Exécute le script dans un thread pool (`run_in_executor`) pour compatibilité Windows/uvicorn (pas d'`asyncio.create_subprocess_exec`). Retourne le fichier nettoyé en base64 + statistiques.

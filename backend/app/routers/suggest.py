@@ -3,6 +3,8 @@ from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 import logging
 
+from app.services import advisor
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/suggest", tags=["suggestions"])
@@ -27,6 +29,7 @@ class SuggestionRequest(BaseModel):
 async def get_suggestions_batch(request: SuggestionRequest):
     try:
         results = []
+        advisor_issues = []
         for issue in request.issues:
             strategies = _generate_strategies_for_issue(issue)
             results.append({
@@ -37,12 +40,28 @@ async def get_suggestions_batch(request: SuggestionRequest):
                     "description": issue.description or f"Problème {issue.type}",
                 },
                 "strategies": strategies,
-                "recommended": 0,
+                "recommended": 0,      # défaut rule-based (repli si LLM indispo)
             })
+            advisor_issues.append({
+                "type": issue.type, "column": issue.column,
+                "semantic_type": issue.semantic_type, "severity": issue.severity,
+                "strategies": strategies,
+            })
+
+        # Couche agentique : le LLM raisonne sur les données réelles pour choisir
+        # ET justifier la meilleure stratégie par problème. Fail-open → {} = on
+        # conserve recommended=0 (comportement rule-based inchangé).
+        advice = advisor.advise(request.dataset_name, request.column_types,
+                                advisor_issues, request.sample_data)
+        for i, rec in advice.items():
+            results[i]["recommended"] = rec["recommended"]
+            results[i]["rationale"] = rec["rationale"]
+
         return {
             "results": results,
             "total_issues": len(results),
             "total_strategies": sum(len(r["strategies"]) for r in results),
+            "advisor_used": bool(advice),
         }
     except Exception as e:
         logger.error(f"Erreur suggestions: {e}")

@@ -2,6 +2,7 @@ from fastapi import APIRouter, UploadFile, File, HTTPException
 from datetime import datetime
 
 from app.services.profiler import DataProfiler
+from app.services import advisor
 from app.routers.suggest import _generate_strategies_for_issue, IssueInput
 from app.routers.generate import _build_complete_script, _validate_and_fix_code, _validate_syntax
 
@@ -41,8 +42,10 @@ async def auto_clean(file: UploadFile = File(...)):
             },
         }
 
-    validated_steps = []
-    for i, issue in enumerate(issues):
+    # Stratégies candidates par problème
+    per_issue = []
+    advisor_issues = []
+    for issue in issues:
         issue_input = IssueInput(
             type=issue.get("type") or issue.get("issue", "unknown"),
             column=issue.get("column"),
@@ -51,15 +54,33 @@ async def auto_clean(file: UploadFile = File(...)):
             semantic_type=issue.get("semantic_type"),
         )
         strategies = _generate_strategies_for_issue(issue_input)
+        per_issue.append((issue, strategies))
+        advisor_issues.append({
+            "type": issue_input.type, "column": issue_input.column,
+            "semantic_type": issue_input.semantic_type, "severity": issue_input.severity,
+            "strategies": strategies,
+        })
+
+    # Couche agentique : le LLM raisonne sur les données réelles et choisit la
+    # meilleure stratégie par problème (fail-open → {} = on garde l'index 0).
+    cols = analysis.get("columns", [])
+    column_types = {c.get("name"): c.get("semantic_type", "") for c in cols}
+    sample_data = {c.get("name"): c.get("sample_values", []) for c in cols}
+    advice = advisor.advise(file.filename, column_types, advisor_issues, sample_data)
+
+    validated_steps = []
+    for i, (issue, strategies) in enumerate(per_issue):
         if not strategies:
             continue
-        best_code = strategies[0]["code_preview"]
+        rec = advice.get(i, {}).get("recommended", 0)
+        chosen = strategies[rec]
         validated_steps.append({
             "column": issue.get("column"),
             "issue_type": issue.get("issue") or issue.get("type", "unknown"),
-            "strategy_name": strategies[0]["name"],
-            "code": _validate_and_fix_code(best_code, issue.get("column"), issue.get("type", "")),
-            "step_number": i + 1,
+            "strategy_name": chosen["name"],
+            "rationale": advice.get(i, {}).get("rationale", ""),
+            "code": _validate_and_fix_code(chosen["code_preview"], issue.get("column"), issue.get("type", "")),
+            "step_number": len(validated_steps) + 1,
         })
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -76,6 +97,7 @@ async def auto_clean(file: UploadFile = File(...)):
         "filename": filename,
         "issues_found": len(issues),
         "steps_applied": len(validated_steps),
+        "advisor_used": bool(advice),
         "message": f"{len(validated_steps)} correction(s) appliquée(s) automatiquement.",
         "analysis": {
             "rows": analysis["dataset_info"]["rows"],
