@@ -109,12 +109,14 @@ export interface BatchStrategyItem {
   issue: IssueDetected;
   strategies: CleaningStrategy[];
   recommended: number;
+  rationale?: string;   // justification du conseiller LLM (si activé)
 }
 
 export interface BatchSuggestionResponse {
   results: BatchStrategyItem[];
   total_issues: number;
   total_strategies: number;
+  advisor_used?: boolean;   // true si le conseiller LLM a pesé
 }
 
 export const getSuggestionsBatch = async (

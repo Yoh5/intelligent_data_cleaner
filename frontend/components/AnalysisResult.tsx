@@ -295,6 +295,12 @@ export const AnalysisResult: React.FC<AnalysisResultProps> = ({
                     </button>
                   </div>
                 )}
+                {suggestionResults[idx]?.rationale && (
+                  <div className="mt-1 ml-2 flex items-start gap-1.5 text-xs text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-md px-2 py-1">
+                    <span aria-hidden>🤖</span>
+                    <span><span className="font-semibold">Choix de l&apos;IA :</span> {suggestionResults[idx].rationale}</span>
+                  </div>
+                )}
               </div>
             ))
           )}
@@ -350,6 +356,7 @@ export const AnalysisResult: React.FC<AnalysisResultProps> = ({
           }}
           strategies={suggestionResults[activeModal]?.strategies || []}
           recommended={suggestionResults[activeModal]?.recommended ?? 0}
+          rationale={suggestionResults[activeModal]?.rationale}
           onSelect={(strategy) => handleStrategySelect(activeModal, strategy)}
           onClose={() => setActiveModal(null)}
         />

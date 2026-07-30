@@ -21,6 +21,7 @@ interface SuggestionModalProps {
   issue: Issue;
   strategies: Strategy[];
   recommended: number;
+  rationale?: string;
   onSelect: (strategy: Strategy) => void;
   onClose: () => void;
 }
@@ -29,6 +30,7 @@ export const SuggestionModal: React.FC<SuggestionModalProps> = ({
   issue,
   strategies,
   recommended,
+  rationale,
   onSelect,
   onClose,
 }) => {
@@ -72,6 +74,13 @@ export const SuggestionModal: React.FC<SuggestionModalProps> = ({
             )}
             {!issue.column && ' — Dataset entier'}
           </p>
+
+          {rationale && (
+            <div className="mb-4 flex items-start gap-2 text-sm text-indigo-800 bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2">
+              <span aria-hidden className="mt-0.5">🤖</span>
+              <span><span className="font-semibold">Recommandation de l&apos;IA :</span> {rationale}</span>
+            </div>
+          )}
 
           {strategies.length === 0 ? (
             <div className="py-8 text-center text-gray-500">
