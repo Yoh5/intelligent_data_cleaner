@@ -84,7 +84,7 @@ def _generate_strategies_for_issue(issue: IssueInput) -> List[Dict]:
                 "cons": ["Réduit légèrement la variance"],
                 "code_preview": f"if '{col}' in df.columns:\n"
                                 f"    df['{col}'] = pd.to_numeric(df['{col}'], errors='coerce')\n"
-                                f"    df['{col}'].fillna(df['{col}'].median(), inplace=True)",
+                                f"    df['{col}'] = df['{col}'].fillna(df['{col}'].median())",
                 "confidence": "high",
             })
             strategies.append({
@@ -94,7 +94,7 @@ def _generate_strategies_for_issue(issue: IssueInput) -> List[Dict]:
                 "cons": ["Sensible aux outliers"],
                 "code_preview": f"if '{col}' in df.columns:\n"
                                 f"    df['{col}'] = pd.to_numeric(df['{col}'], errors='coerce')\n"
-                                f"    df['{col}'].fillna(df['{col}'].mean(), inplace=True)",
+                                f"    df['{col}'] = df['{col}'].fillna(df['{col}'].mean())",
                 "confidence": "medium",
             })
             strategies.append({
@@ -104,8 +104,8 @@ def _generate_strategies_for_issue(issue: IssueInput) -> List[Dict]:
                 "cons": ["Suppose une continuité dans les données"],
                 "code_preview": f"if '{col}' in df.columns:\n"
                                 f"    df['{col}'] = pd.to_numeric(df['{col}'], errors='coerce')\n"
-                                f"    df['{col}'].ffill(inplace=True)\n"
-                                f"    df['{col}'].fillna(0, inplace=True)  # fallback si premières lignes NaN",
+                                f"    df['{col}'] = df['{col}'].ffill()\n"
+                                f"    df['{col}'] = df['{col}'].fillna(0)  # fallback si premières lignes NaN",
                 "confidence": "medium",
             })
             strategies.append({
@@ -126,7 +126,7 @@ def _generate_strategies_for_issue(issue: IssueInput) -> List[Dict]:
                 "code_preview": f"if '{col}' in df.columns:\n"
                                 f"    mode_val = df['{col}'].mode()\n"
                                 f"    if not mode_val.empty:\n"
-                                f"        df['{col}'].fillna(mode_val[0], inplace=True)",
+                                f"        df['{col}'] = df['{col}'].fillna(mode_val[0])",
                 "confidence": "high",
             })
             strategies.append({
@@ -135,7 +135,7 @@ def _generate_strategies_for_issue(issue: IssueInput) -> List[Dict]:
                 "pros": ["Transparent", "Aucune perte de lignes"],
                 "cons": ["Crée une catégorie artificielle"],
                 "code_preview": f"if '{col}' in df.columns:\n"
-                                f"    df['{col}'].fillna('Inconnu', inplace=True)",
+                                f"    df['{col}'] = df['{col}'].fillna('Inconnu')",
                 "confidence": "medium",
             })
             strategies.append({
@@ -155,7 +155,7 @@ def _generate_strategies_for_issue(issue: IssueInput) -> List[Dict]:
                 "cons": ["Peut créer des doublons de dates"],
                 "code_preview": f"if '{col}' in df.columns:\n"
                                 f"    df['{col}'] = pd.to_datetime(df['{col}'], errors='coerce')\n"
-                                f"    df['{col}'].ffill(inplace=True)",
+                                f"    df['{col}'] = df['{col}'].ffill()",
                 "confidence": "high",
             })
             strategies.append({
@@ -175,7 +175,7 @@ def _generate_strategies_for_issue(issue: IssueInput) -> List[Dict]:
                 "cons": ["Peut ne pas être adapté si colonne non-numérique"],
                 "code_preview": f"if '{col}' in df.columns:\n"
                                 f"    df['{col}'] = pd.to_numeric(df['{col}'], errors='coerce')\n"
-                                f"    df['{col}'].fillna(df['{col}'].median(), inplace=True)",
+                                f"    df['{col}'] = df['{col}'].fillna(df['{col}'].median())",
                 "confidence": "medium",
             })
 
