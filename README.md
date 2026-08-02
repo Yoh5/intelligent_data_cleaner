@@ -4,6 +4,9 @@ Plateforme web d'analyse et de nettoyage automatisé de données CSV/Excel. Dét
 
 **Couche agentique** : un conseiller LLM **raisonne sur les données réelles** (types, sévérité, échantillon) pour **choisir ET justifier** la meilleure stratégie par problème — avec **repli rule-based automatique** si aucune clé OpenAI n'est configurée (l'app reste 100 % fonctionnelle sans LLM).
 
+**Boucle agentique autonome** (`/agent-clean`) : au lieu d'une passe unique, l'agent poursuit un **objectif chiffré de qualité** — il **mesure** la qualité des données (score déterministe), **nettoie** (le LLM choisit la stratégie par problème), **re-profile** le résultat, et **itère** jusqu'à la cible en **gardant la meilleure version**. Il renvoie la trace (qualité avant → après), le CSV nettoyé et un script pandas reproductible. Testé sans réseau (`services/quality.py`, `services/agent_cleaner.py`).
+
+[![tests](https://github.com/Yoh5/intelligent_data_cleaner/actions/workflows/tests.yml/badge.svg)](https://github.com/Yoh5/intelligent_data_cleaner/actions/workflows/tests.yml)
 ![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.104+-green.svg)
 ![Next.js](https://img.shields.io/badge/Next.js-16+-black.svg)

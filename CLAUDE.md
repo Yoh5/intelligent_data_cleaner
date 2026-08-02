@@ -26,7 +26,13 @@ npm run lint
 OPENAI_API_KEY=<key> docker-compose up --build
 ```
 
-No test infrastructure exists in this project.
+### Tests
+```bash
+cd backend
+pip install pandas numpy openpyxl fastapi "pydantic>=2" pydantic-settings python-multipart httpx openai pytest
+pytest tests/ -q   # advisor, quality (score déterministe), agent_cleaner (boucle offline)
+```
+CI : `.github/workflows/tests.yml` (push/PR). La boucle agentique tourne 100 % offline (conseiller fail-open → rule-based).
 
 ## Architecture
 
@@ -34,8 +40,11 @@ Three-step pipeline: upload CSV/Excel → profile & detect issues → pick clean
 
 ```
 POST /analyze/   → DataProfiler → issues + column metadata
-POST /suggest/batch → rule-based strategies per issue
+POST /suggest/batch → rule-based strategies per issue (+ LLM advisor picks/justifies)
 POST /generate/  → validated, downloadable .py script
+POST /auto-clean/ → one-pass autopilot (analyse → pick → script)
+POST /agent-clean/ → AGENTIC LOOP: measure quality → clean → re-profile → iterate,
+                     keeping the best version (services/agent_cleaner.py + quality.py)
 ```
 
 ### Backend (`backend/app/`)

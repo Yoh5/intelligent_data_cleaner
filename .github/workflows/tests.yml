@@ -1,0 +1,28 @@
+name: tests
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        # Dépendances réellement utilisées par les tests (on évite ydata-profiling,
+        # lourd et non requis par le profiler/les services).
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas numpy openpyxl fastapi "pydantic>=2" pydantic-settings \
+                      python-multipart httpx openai pytest
+      - name: Run tests
+        run: pytest tests/ -q
