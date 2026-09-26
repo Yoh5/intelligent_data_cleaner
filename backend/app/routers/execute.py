@@ -10,6 +10,8 @@ import tempfile
 import pandas as pd
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
+from app.services.sandbox import ScriptRefused, check_script, subprocess_env
+
 router = APIRouter(prefix="/execute", tags=["execute"])
 
 
@@ -23,6 +25,13 @@ async def execute_script(
     Uses run_in_executor + subprocess.run for Windows/uvicorn compatibility.
     Returns the cleaned file as Excel if the input was Excel, CSV otherwise.
     """
+    # Le script vient du client : il a pu être relu et corrigé, c'est le
+    # produit. Il doit quand même ressembler à ce que le générateur écrit.
+    try:
+        check_script(script)
+    except ScriptRefused as refusal:
+        raise HTTPException(status_code=400, detail=str(refusal))
+
     content = await file.read()
     filename = file.filename or "dataset.csv"
     ext = os.path.splitext(filename)[1].lower()
@@ -56,6 +65,14 @@ async def execute_script(
                     subprocess.run,
                     cmd,
                     timeout=30,
+                    # Environnement construit, jamais hérité : le script n'a
+                    # jamais eu besoin d'une variable du serveur, et le serveur
+                    # en détient une qui vaut de l'argent. Sans ça, trois
+                    # lignes de Python renvoyaient OPENAI_API_KEY dans `logs`.
+                    env=subprocess_env(),
+                    # Et il travaille dans le dossier temporaire, pas dans
+                    # celui d'où uvicorn a été lancé.
+                    cwd=tmpdir,
                     capture_output=True,
                     text=True,
                     encoding="utf-8",

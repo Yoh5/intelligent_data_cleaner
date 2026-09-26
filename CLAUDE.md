@@ -57,7 +57,11 @@ POST /agent-clean/ → AGENTIC LOOP: measure quality → clean → re-profile �
 
 **`routers/generate.py`** — Assembles a complete, standalone `.py` script from the selected strategies' `code_preview` fields. Validates syntax with Python's `ast` module before returning. Auto-corrects deprecated pandas methods (e.g. `fillna(method='ffill')` → `ffill()`). Generated scripts include their own `detect_encoding`/`detect_delimiter`/`load_data` helpers so they run without this app.
 
-**`config.py`** — `OPENAI_API_KEY` is plumbed but the suggestion router is currently rule-based only; the key is reserved for future LLM-powered suggestions.
+**`routers/execute.py`** — Runs a cleaning script on the uploaded file, in a temp dir, 30s timeout. The script comes from the **client** (the user may edit what was generated), so two barriers apply, in `services/sandbox.py`:
+- `subprocess_env()` builds the child environment instead of inheriting it. Before this, the script ran with the server's `OPENAI_API_KEY` and `stdout` was returned to the caller — three lines exfiltrated the key. Keep `APPDATA`/`HOME` in the kept list: Python needs them to find the *user site*, and without them `import pandas` fails.
+- `check_script()` refuses anything outside the shape the generator produces (import allowlist, no `eval`/`exec`/`__import__`/`getattr`, no dunder climbing). This is defence in depth, **not a sandbox** — arbitrary Python is arbitrary Python. What protects is the empty environment.
+
+**`config.py`** — `OPENAI_API_KEY` feeds `services/advisor.py` (the LLM picks and justifies a strategy, fail-open to rule-based).
 
 ### Frontend (`frontend/`)
 
