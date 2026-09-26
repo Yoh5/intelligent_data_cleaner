@@ -2,6 +2,294 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ═══════════════════════════════════════════════════════════════════════
+   Intelligent Data Cleaner
+
+   L'outil ne nettoie pas dans ton dos : il montre le défaut, te fait
+   choisir, et te rend le code. Deux choses seulement sont à l'écran —
+   ce qui ne va pas dans les données, et le script qui va le corriger.
+   Tout le reste doit s'effacer devant ces deux-là.
+
+   L'unité de la page est donc la COLONNE du fichier, pas la carte. Une
+   colonne = une ligne : son nom (en mono, c'est un identifiant), son
+   type, une bande de densité qui montre les trous, la mesure, la
+   gravité. On lit la liste de haut en bas et on VOIT où sont les trous,
+   au lieu de lire « 23 problèmes » dans une tuile.
+
+   La gravité ne prend pas de couleur. Un feu tricolore rouge/orange/
+   jaune/vert sur quatre niveaux est le réflexe, et il ment : ce sont
+   quatre crans d'une même échelle, pas quatre catégories. Elle est donc
+   portée par l'ordre de la liste et par la graisse du mot. Le bleu de
+   tampon ne sert qu'à une chose dans toute la feuille : marquer ce qui
+   manque ou ce qui est faux.
+   ═══════════════════════════════════════════════════════════════════ */
+
+:root {
+  --sheet:   #f4f4f1;
+  --sheet-2: #ececeA;
+  --sheet-3: #e3e4e0;
+  --ink:     #1f2328;
+  --ink-2:   #5a626b;
+  --ink-3:   #8d959d;
+  --rule:    #d9dad5;
+  --rule-soft: #e6e7e3;
+
+  /* Bleu de tampon : ce qui manque, ce qui est faux. Rien d'autre. */
+  --stamp:      #0f6c93;
+  --stamp-weak: #dfeaf0;
+
+  --danger:      #9c3328;
+  --danger-weak: #f4e3e1;
+
+  --r: 3px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --sheet:   #16191c;
+    --sheet-2: #1d2125;
+    --sheet-3: #242a2f;
+    --ink:     #e2e5e8;
+    --ink-2:   #9aa3ab;
+    --ink-3:   #6d767e;
+    --rule:    #2c3238;
+    --rule-soft: #232930;
+    --stamp:      #56aed3;
+    --stamp-weak: #14303d;
+    --danger:      #e08b80;
+    --danger-weak: #331f1d;
+  }
+}
+
 body {
-  @apply bg-gray-50 text-gray-900;
+  background: var(--sheet);
+  color: var(--ink);
+  font-feature-settings: "tnum" 1;
+}
+
+@layer components {
+
+  .wrap { @apply mx-auto w-full; max-width: 56rem; padding-left: 1.25rem; padding-right: 1.25rem; }
+
+  /* ── En-tête ─────────────────────────────────────────────────── */
+
+  .topbar {
+    @apply flex items-baseline justify-between gap-6 flex-wrap;
+    padding: 1.5rem 0 0.75rem;
+    border-bottom: 1px solid var(--rule);
+  }
+  .topbar-name { @apply text-[0.95rem] font-semibold tracking-tight; color: var(--ink); }
+
+  /* Une ligne de métadonnées : tout ce qui est mesuré est en mono. */
+  .meta {
+    @apply font-mono text-[0.75rem];
+    color: var(--ink-2);
+  }
+  .meta-sep { color: var(--ink-3); margin: 0 0.5rem; }
+
+  .title {
+    @apply text-[1.6rem] leading-tight tracking-tight font-semibold;
+    color: var(--ink);
+  }
+  .lede {
+    @apply text-[0.95rem] leading-relaxed;
+    color: var(--ink-2);
+    max-width: 34rem;
+  }
+
+  .section-head {
+    @apply flex items-baseline justify-between gap-4 flex-wrap;
+    padding-bottom: 0.4rem;
+    margin-bottom: 0.9rem;
+    border-bottom: 1px solid var(--rule);
+  }
+  .section-label { @apply font-mono text-[0.74rem]; color: var(--ink-2); }
+
+  /* ── La colonne du fichier, unité de la page ─────────────────── */
+
+  /* Largeurs FIXES, pas `auto` : chaque ligne est sa propre grille, donc
+     `auto` les dimensionne indépendamment et les bandes ne s'alignent plus
+     d'une ligne à l'autre. Or toute la valeur de ces bandes est qu'on les
+     balaie en colonne — mal alignées, elles ne valent plus rien. */
+  .colrow {
+    @apply grid items-baseline gap-x-4 gap-y-1 w-full text-left;
+    grid-template-columns: 9rem 13rem minmax(4rem, 1fr) 15rem;
+    padding: 0.62rem 0;
+    border-top: 1px solid var(--rule-soft);
+  }
+  @media (max-width: 52rem) {
+    .colrow { grid-template-columns: 8rem 1fr; }
+    .colrow .strip { grid-column: 1 / -1; }
+    .colrow-note { grid-column: 1 / -1; text-align: left; }
+  }
+  .colrow:first-child { border-top: 0; }
+  .colrow--pick { cursor: pointer; }
+  .colrow--pick:hover .colrow-name { color: var(--stamp); }
+  .colrow--on { background: var(--sheet-2); }
+
+  .colrow-name { @apply font-mono text-[0.86rem] truncate; color: var(--ink); }
+  .colrow-kind { @apply font-mono text-[0.72rem]; color: var(--ink-3); }
+  .colrow-note { @apply font-mono text-[0.72rem] text-right; color: var(--ink-2); }
+
+  /* La bande de densité : la partie pleine est de l'encre, le trou est
+     du tampon. C'est une donnée, pas une décoration — sa longueur est
+     la proportion réelle. */
+  .strip {
+    @apply block w-full overflow-hidden;
+    height: 6px;
+    border-radius: var(--r);
+    background: var(--ink-2);
+    min-width: 3rem;
+  }
+  .strip > i {
+    @apply block h-full;
+    background: var(--stamp);
+    float: right;
+  }
+
+  /* La gravité est un mot, et sa graisse est son échelle. */
+  .sev { @apply font-mono text-[0.72rem]; }
+  .sev--critical { color: var(--ink); font-weight: 600; }
+  .sev--high     { color: var(--ink); }
+  .sev--medium   { color: var(--ink-2); }
+  .sev--low      { color: var(--ink-3); }
+
+  .colrow-desc {
+    @apply text-[0.84rem] leading-normal flex items-baseline gap-2 flex-wrap;
+    grid-column: 1 / -1;
+    color: var(--ink-2);
+    max-width: 48rem;
+  }
+  .colrow-hint { @apply font-mono text-[0.72rem] whitespace-nowrap; color: var(--ink-3); }
+
+  /* ── Contrôles ───────────────────────────────────────────────── */
+
+  .btn {
+    @apply inline-flex items-center gap-2 font-mono text-[0.78rem] cursor-pointer;
+    padding: 0.42rem 0.8rem;
+    border-radius: var(--r);
+    border: 1px solid var(--rule);
+    background: transparent;
+    color: var(--ink-2);
+  }
+  .btn:hover:not(:disabled) { color: var(--ink); border-color: var(--ink-3); }
+  .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+  .btn--primary {
+    background: var(--ink);
+    border-color: var(--ink);
+    color: var(--sheet);
+  }
+  .btn--primary:hover:not(:disabled) { background: var(--stamp); border-color: var(--stamp); color: #fff; }
+
+  .btn--quiet {
+    border-color: transparent;
+    padding-left: 0;
+    padding-right: 0;
+  }
+  .btn--quiet:hover:not(:disabled) { color: var(--stamp); border-color: transparent; text-decoration: underline; text-underline-offset: 3px; }
+
+  .btn--drop:hover:not(:disabled) { color: var(--danger); border-color: var(--danger); }
+
+  /* ── Dépôt de fichier ────────────────────────────────────────── */
+
+  .drop {
+    @apply flex flex-col items-center justify-center text-center cursor-pointer;
+    padding: 3rem 1.5rem;
+    border: 1px dashed var(--rule);
+    border-radius: var(--r);
+    background: var(--sheet-2);
+  }
+  .drop:hover, .drop--over { border-color: var(--stamp); background: var(--stamp-weak); }
+  .drop-title { @apply text-[0.95rem]; color: var(--ink); }
+  .drop-hint { @apply font-mono text-[0.74rem] mt-2; color: var(--ink-3); }
+
+  /* ── Panneaux ────────────────────────────────────────────────── */
+
+  .panel { margin-bottom: 2.4rem; }
+
+  .note {
+    @apply text-[0.82rem] leading-relaxed;
+    padding: 0.45rem 0 0.45rem 0.75rem;
+    border-left: 2px solid var(--stamp);
+    color: var(--ink-2);
+    max-width: 44rem;
+  }
+  .note-who { @apply font-mono text-[0.72rem]; color: var(--ink-3); display: block; }
+
+  .alert {
+    @apply text-[0.84rem];
+    padding: 0.5rem 0 0.5rem 0.75rem;
+    border-left: 2px solid var(--rule);
+    color: var(--ink-2);
+  }
+  .alert--bad { border-left-color: var(--danger); color: var(--danger); }
+
+  /* ── Le script ───────────────────────────────────────────────── */
+
+  .code {
+    @apply font-mono text-[0.78rem] leading-relaxed overflow-x-auto whitespace-pre;
+    padding: 1rem;
+    border: 1px solid var(--rule-soft);
+    border-radius: var(--r);
+    background: var(--sheet-2);
+    color: var(--ink);
+    max-height: 30rem;
+  }
+
+  /* ── Aperçu du fichier ───────────────────────────────────────── */
+
+  .sheet-table { @apply w-full font-mono text-[0.76rem] border-collapse; }
+  .sheet-table th {
+    @apply text-left whitespace-nowrap font-medium;
+    padding: 0.35rem 0.8rem 0.35rem 0;
+    color: var(--ink-3);
+    border-bottom: 1px solid var(--rule);
+  }
+  .sheet-table td {
+    @apply whitespace-nowrap truncate;
+    padding: 0.28rem 0.8rem 0.28rem 0;
+    color: var(--ink-2);
+    border-bottom: 1px solid var(--rule-soft);
+    max-width: 14rem;
+  }
+  .cell-empty { color: var(--stamp); }
+
+  /* ── Choix d'une stratégie ───────────────────────────────────── */
+
+  .modal-veil {
+    @apply fixed inset-0 z-50 flex items-start justify-center overflow-y-auto;
+    background: rgba(20, 24, 28, 0.55);
+    padding: 3rem 1.25rem;
+  }
+  .modal-card {
+    @apply w-full;
+    max-width: 44rem;
+    background: var(--sheet);
+    border: 1px solid var(--rule);
+    border-radius: var(--r);
+    padding: 1.6rem;
+  }
+
+  .opt {
+    @apply w-full text-left cursor-pointer;
+    padding: 0.85rem 0;
+    border-top: 1px solid var(--rule-soft);
+  }
+  .opt:first-of-type { border-top: 0; }
+  .opt:hover .opt-name { color: var(--stamp); }
+  .opt--on { background: var(--sheet-2); }
+  .opt-name { @apply text-[0.92rem] font-medium; color: var(--ink); }
+  .opt-for, .opt-against { @apply text-[0.8rem] leading-normal; color: var(--ink-2); }
+  .opt-against { color: var(--ink-3); }
+}
+
+:focus-visible {
+  outline: 2px solid var(--stamp);
+  outline-offset: 2px;
+  border-radius: var(--r);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
 }

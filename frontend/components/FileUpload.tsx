@@ -119,9 +119,9 @@ export const FileUpload: React.FC<FileUploadProps> = ({
   };
 
   return (
-    <div className="w-full max-w-2xl mx-auto">
+    <div className="w-full">
       {/* Mode tabs */}
-      <div className="flex border-b border-gray-200 mb-6">
+      <div className="flex gap-5 mb-6">
         {(['file', 'url'] as Mode[]).map((m) => (
           <button
             key={m}
@@ -130,21 +130,23 @@ export const FileUpload: React.FC<FileUploadProps> = ({
               setPendingFile(null);
               setUrlInput('');
             }}
-            className={`px-5 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
+            className="btn btn--quiet"
+            style={
               mode === m
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
-            }`}
+                ? { color: 'var(--ink)', textDecoration: 'underline', textDecorationThickness: '2px', textUnderlineOffset: '4px' }
+                : undefined
+            }
+            aria-pressed={mode === m}
           >
-            {m === 'file' ? 'Fichier' : 'URL'}
+            {m === 'file' ? 'un fichier' : 'une adresse'}
           </button>
         ))}
       </div>
 
       {isLoading ? (
-        <div className="py-12 text-center space-y-3">
-          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mx-auto" />
-          <p className="text-gray-600 font-medium">{loadingAction}</p>
+        <div className="py-12 text-center">
+          
+          <p className="meta">{loadingAction}</p>
         </div>
       ) : mode === 'file' ? (
         <div className="space-y-4">
@@ -153,7 +155,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
-            className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
+            className={`drop ${
               isDragging ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:border-blue-400'
             }`}
           >
@@ -182,18 +184,18 @@ export const FileUpload: React.FC<FileUploadProps> = ({
               </svg>
               {pendingFile ? (
                 <div>
-                  <p className="font-medium text-gray-800">{pendingFile.name}</p>
-                  <p className="text-sm text-gray-500 mt-1">
+                  <p className="drop-title font-mono">{pendingFile.name}</p>
+                  <p className="drop-hint">
                     {(pendingFile.size / 1024).toFixed(1)} KB — cliquez pour changer
                   </p>
                 </div>
               ) : (
                 <>
-                  <p className="font-medium text-gray-700">
+                  <p className="drop-title">
                     {isDragging ? 'Déposez le fichier ici' : 'Glissez-déposez votre fichier ici'}
                   </p>
-                  <p className="text-sm text-gray-500 mt-1">ou cliquez pour sélectionner</p>
-                  <p className="text-xs text-gray-400 mt-2">CSV, Excel (max 100 MB)</p>
+                  <p className="drop-hint">ou cliquez pour choisir un fichier</p>
+                  <p className="drop-hint">CSV ou Excel, 100 Mo maximum</p>
                 </>
               )}
             </label>
@@ -201,16 +203,16 @@ export const FileUpload: React.FC<FileUploadProps> = ({
 
           {/* Action buttons */}
           {pendingFile && (
-            <div className="grid grid-cols-2 gap-3">
+            <div className="flex gap-3 flex-wrap">
               <button
                 onClick={runAnalyze}
-                className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-4 rounded-lg transition-all shadow"
+                className="btn btn--primary"
               >
                 Analyser
               </button>
               <button
                 onClick={runAutopilot}
-                className="bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-semibold py-3 px-4 rounded-lg transition-all shadow"
+                className="btn"
               >
                 Nettoyage auto
               </button>
@@ -221,23 +223,23 @@ export const FileUpload: React.FC<FileUploadProps> = ({
         /* URL mode */
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">URL du fichier</label>
+            <label className="section-label block mb-1">adresse du fichier</label>
             <input
               type="url"
               value={urlInput}
               onChange={(e) => setUrlInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && runUrlAnalyze()}
               placeholder="https://... ou lien Google Sheets"
-              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full font-mono text-[0.82rem] px-3 py-2 bg-transparent" style={{ border: '1px solid var(--rule)', borderRadius: '3px', color: 'var(--ink)' }}
             />
-            <p className="text-xs text-gray-400 mt-1">
+            <p className="drop-hint">
               Liens directs CSV/Excel, Google Sheets (export public), S3 public
             </p>
           </div>
           <button
             onClick={runUrlAnalyze}
             disabled={!urlInput.trim()}
-            className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold py-3 rounded-lg transition-colors shadow"
+            className="btn btn--primary"
           >
             Analyser depuis l'URL
           </button>

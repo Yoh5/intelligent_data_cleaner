@@ -174,164 +174,122 @@ export const AnalysisResult: React.FC<AnalysisResultProps> = ({
   const sampleColumns = sampleRows && sampleRows.length > 0 ? Object.keys(sampleRows[0]) : [];
 
   return (
-    <div className="space-y-6">
-      {/* Summary */}
-      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-6 border border-blue-100">
-        <h3 className="text-lg font-semibold text-gray-800 mb-4">Résumé de l'analyse</h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="bg-white rounded-lg p-3 shadow-sm">
-            <div className="text-2xl font-bold text-blue-600">{analysis.shape[0].toLocaleString()}</div>
-            <div className="text-sm text-gray-600">Lignes</div>
-          </div>
-          <div className="bg-white rounded-lg p-3 shadow-sm">
-            <div className="text-2xl font-bold text-blue-600">{analysis.shape[1]}</div>
-            <div className="text-sm text-gray-600">Colonnes</div>
-          </div>
-          <div className="bg-white rounded-lg p-3 shadow-sm">
-            <div className="text-2xl font-bold text-orange-600">{analysis.issues.length}</div>
-            <div className="text-sm text-gray-600">Problèmes</div>
-          </div>
-          <div className="bg-white rounded-lg p-3 shadow-sm">
-            <div className="text-2xl font-bold text-red-600">
-              {analysis.issues.filter((i) => i.severity === "critical" || i.severity === "high").length}
-            </div>
-            <div className="text-sm text-gray-600">Critiques</div>
-          </div>
-        </div>
+    <div>
+      {/* Ce que le fichier est, en une ligne de mesures. Quatre grands
+          chiffres dans quatre tuiles disaient surtout « ceci est un
+          tableau de bord » ; la question du lecteur est « combien de
+          colonnes ne vont pas », et elle tient sur une ligne. */}
+      <div className="panel">
+        <p className="meta">
+          {analysis.shape[0].toLocaleString('fr-FR')} lignes
+          <span className="meta-sep">·</span>
+          {analysis.shape[1]} colonnes
+          <span className="meta-sep">·</span>
+          {analysis.issues.length === 0
+            ? 'aucun problème détecté'
+            : `${analysis.issues.length} à problème, dont ${analysis.issues.filter(
+                (i) => i.severity === 'critical' || i.severity === 'high',
+              ).length} sérieux`}
+        </p>
 
-        {/* Data preview toggle */}
         {sampleRows && sampleRows.length > 0 && (
-          <button
-            onClick={() => setShowPreview((v) => !v)}
-            className="mt-4 text-sm text-blue-600 hover:text-blue-800 font-medium"
-          >
-            {showPreview ? '▲ Masquer l\'aperçu' : '▼ Aperçu des données (5 premières lignes)'}
+          <button onClick={() => setShowPreview((v) => !v)} className="btn btn--quiet mt-3">
+            {showPreview ? 'masquer les données' : 'voir les 5 premières lignes'}
           </button>
         )}
       </div>
 
-      {/* Data preview table */}
       {showPreview && sampleRows && sampleColumns.length > 0 && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-          <div className="p-3 bg-gray-50 border-b border-gray-200">
-            <span className="text-sm font-medium text-gray-700">Aperçu — {sampleColumns.length} colonnes</span>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-gray-50 border-b border-gray-200">
+        <div className="panel overflow-x-auto">
+          <table className="sheet-table">
+            <thead>
+              <tr>
+                {sampleColumns.map((col) => (
+                  <th key={col}>{col}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {sampleRows.slice(0, 5).map((row: any, i: number) => (
+                <tr key={i}>
                   {sampleColumns.map((col) => (
-                    <th key={col} className="px-3 py-2 text-left font-medium text-gray-600 whitespace-nowrap">
-                      {col}
-                    </th>
+                    <td key={col}>
+                      {row[col] === null || row[col] === '' ? (
+                        <span className="cell-empty">vide</span>
+                      ) : (
+                        String(row[col])
+                      )}
+                    </td>
                   ))}
                 </tr>
-              </thead>
-              <tbody>
-                {sampleRows.map((row, i) => (
-                  <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                    {sampleColumns.map((col) => (
-                      <td key={col} className="px-3 py-1.5 text-gray-700 whitespace-nowrap max-w-[200px] truncate">
-                        {row[col] == null ? (
-                          <span className="text-red-400 italic">null</span>
-                        ) : (
-                          String(row[col])
-                        )}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 
-      {/* Issues */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        <div className="p-4 bg-gray-50 border-b border-gray-200 flex justify-between items-center flex-wrap gap-2">
-          <h3 className="font-semibold text-gray-800">Problèmes identifiés</h3>
-          <div className="flex items-center gap-3">
+      {/* Les colonnes à problème, dans l'ordre de gravité. */}
+      <div className="panel">
+        <div className="section-head">
+          <span className="section-label">ce qui ne va pas</span>
+          <span className="flex items-baseline gap-4">
             {!loadingSuggestions && !allSelected && analysis.issues.length > 0 && (
-              <button
-                onClick={handleSelectAll}
-                className="text-xs bg-blue-50 hover:bg-blue-100 text-blue-700 px-3 py-1.5 rounded-lg font-medium transition-colors"
-              >
-                Tout sélectionner
+              <button onClick={handleSelectAll} className="btn btn--quiet">
+                tout accepter
               </button>
             )}
-            {loadingSuggestions ? (
-              <span className="text-sm text-gray-400 animate-pulse">Chargement des stratégies...</span>
-            ) : (
-              <span className="text-sm text-gray-500">
-                {selectedCount}/{analysis.issues.length} stratégie{selectedCount > 1 ? "s" : ""} sélectionnée{selectedCount > 1 ? "s" : ""}
-              </span>
-            )}
-          </div>
+            <span className="section-label">
+              {loadingSuggestions
+                ? 'lecture des stratégies…'
+                : `${selectedCount}/${analysis.issues.length} décidés`}
+            </span>
+          </span>
         </div>
 
-        <div className="p-4 space-y-3">
-          {analysis.issues.length === 0 ? (
-            <div className="py-8 text-center text-gray-500">
-              Aucun problème détecté dans ce dataset
+        {analysis.issues.length === 0 ? (
+          <p className="alert">
+            Rien à corriger ici. Le fichier peut être utilisé tel quel.
+          </p>
+        ) : (
+          analysis.issues.map((issue, idx) => (
+            <div key={idx}>
+              <IssueCard
+                issue={issue as any}
+                index={idx}
+                onClick={() => !loadingSuggestions && setActiveModal(idx)}
+                isSelected={!!selectedStrategies[idx]}
+              />
+              {selectedStrategies[idx] && (
+                <p className="meta" style={{ paddingLeft: '0.1rem', paddingBottom: '0.5rem' }}>
+                  {selectedStrategies[idx].name}
+                  <span className="meta-sep">·</span>
+                  <button onClick={() => setActiveModal(idx)} className="btn btn--quiet">
+                    changer
+                  </button>
+                </p>
+              )}
+              {suggestionResults[idx]?.rationale && (
+                <p className="note" style={{ marginBottom: '0.6rem' }}>
+                  <span className="note-who">raison du choix</span>
+                  {suggestionResults[idx].rationale}
+                </p>
+              )}
             </div>
-          ) : (
-            analysis.issues.map((issue, idx) => (
-              <div key={idx}>
-                <IssueCard
-                  issue={issue as any}
-                  index={idx}
-                  onClick={() => !loadingSuggestions && setActiveModal(idx)}
-                  isSelected={!!selectedStrategies[idx]}
-                />
-                {selectedStrategies[idx] && (
-                  <div className="mt-1 ml-2 flex items-center gap-2 text-sm text-green-700">
-                    <span className="font-medium">✓ {selectedStrategies[idx].name}</span>
-                    <button
-                      onClick={() => setActiveModal(idx)}
-                      className="text-blue-500 hover:underline text-xs"
-                    >
-                      Changer
-                    </button>
-                  </div>
-                )}
-                {suggestionResults[idx]?.rationale && (
-                  <div className="mt-1 ml-2 flex items-start gap-1.5 text-xs text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-md px-2 py-1">
-                    <span aria-hidden>🤖</span>
-                    <span><span className="font-semibold">Choix de l&apos;IA :</span> {suggestionResults[idx].rationale}</span>
-                  </div>
-                )}
-              </div>
-            ))
-          )}
-        </div>
+          ))
+        )}
       </div>
 
-      {/* Error */}
-      {error && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-red-700">{error}</div>
-      )}
+      {error && <p className="alert alert--bad panel">{error}</p>}
 
-      {/* Generate button */}
       {!generatedScript && (
         <button
           onClick={handleGenerateCode}
           disabled={isGenerating || selectedCount === 0}
-          className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700
-                     disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-3 px-6 rounded-lg
-                     transition-all transform hover:scale-[1.02] active:scale-[0.98] shadow-lg"
+          className="btn btn--primary"
         >
-          {isGenerating ? (
-            <span className="flex items-center justify-center gap-2">
-              <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-              </svg>
-              Génération en cours...
-            </span>
-          ) : (
-            `Générer le script (${selectedCount} stratégie${selectedCount > 1 ? "s" : ""})`
-          )}
+          {isGenerating
+            ? 'génération…'
+            : `écrire le script (${selectedCount} décision${selectedCount > 1 ? 's' : ''})`}
         </button>
       )}
 

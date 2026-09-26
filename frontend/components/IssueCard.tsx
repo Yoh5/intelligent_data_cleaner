@@ -19,98 +19,83 @@ interface IssueCardProps {
   isSelected?: boolean;
 }
 
-export const IssueCard: React.FC<IssueCardProps> = ({ 
-  issue, 
-  index, 
-  onClick,
-  isSelected = false
-}) => {
-  const severityColors = {
-    critical: 'border-red-500 bg-red-50',
-    high: 'border-orange-500 bg-orange-50',
-    medium: 'border-yellow-500 bg-yellow-50',
-    low: 'border-blue-500 bg-blue-50'
-  };
+const TYPE_LABELS: Record<string, string> = {
+  missing: 'valeurs manquantes',
+  missing_values: 'valeurs manquantes',
+  outlier: 'valeurs aberrantes',
+  inconsistent: 'types inconsistants',
+  duplicate: 'doublons',
+  duplicate_ids: 'doublons d’identifiant',
+  duplicate_candidates: 'doublons probables',
+  pii: 'données personnelles',
+  mixed_types: 'types mélangés',
+};
 
-  const typeLabels: Record<string, string> = {
-    missing: 'Valeurs manquantes',
-    missing_values: 'Valeurs manquantes',
-    outlier: 'Valeurs aberrantes',
-    inconsistent: 'Types inconsistants',
-    duplicate: 'Doublons',
-    duplicate_ids: 'Doublons ID',
-    duplicate_candidates: 'Candidats doublons',
-    pii: 'Données sensibles (PII)',
-    mixed_types: 'Types mixtes'
-  };
+const SEVERITY_LABELS: Record<string, string> = {
+  critical: 'critique',
+  high: 'élevé',
+  medium: 'moyen',
+  low: 'faible',
+};
 
-  // Déterminer le label à afficher
-  const displayType = issue.type || issue.issue || 'unknown';
-  const label = typeLabels[displayType] || displayType;
+/**
+ * Une colonne du fichier, sur une ligne.
+ *
+ * Pas une carte : la carte force chaque problème à occuper la même
+ * surface, ce qui dit au lecteur que tout se vaut. Ici le nom de la
+ * colonne est en mono — c'est un identifiant de code, il finira écrit
+ * tel quel dans le script — et la bande de densité montre la proportion
+ * réelle de cellules touchées. On lit la liste et on VOIT où sont les
+ * trous, au lieu de lire « 23 problèmes » dans une tuile.
+ */
+export const IssueCard: React.FC<IssueCardProps> = ({ issue, index, onClick, isSelected = false }) => {
+  const kind = issue.type || issue.issue || 'inconnu';
+  const label = TYPE_LABELS[kind] || kind.replace(/_/g, ' ');
+  const severity = SEVERITY_LABELS[issue.severity] || issue.severity;
+
+  // La part touchée, telle qu'elle est mesurée. Pas de valeur inventée :
+  // sans taux connu, la bande n'est pas dessinée plutôt que de mentir.
+  const rate = typeof issue.rate === 'number' ? Math.min(Math.max(issue.rate, 0), 1) : null;
+  const touched = issue.affected_rows ?? issue.count ?? null;
+
+  const Tag = onClick ? 'button' : 'div';
 
   return (
-    <div
-      onClick={() => onClick?.(issue)}
-      className={`
-        border-2 rounded-lg p-4 transition-all cursor-pointer
-        ${severityColors[issue.severity] || 'border-gray-200'}
-        ${onClick ? 'hover:shadow-md' : ''}
-        ${isSelected ? 'ring-2 ring-blue-500' : ''}
-      `}
+    <Tag
+      {...(onClick ? { type: 'button' as const, onClick: () => onClick(issue) } : {})}
+      className={[
+        'colrow',
+        onClick ? 'colrow--pick' : '',
+        isSelected ? 'colrow--on' : '',
+      ].join(' ')}
+      aria-label={issue.column ? `Colonne ${issue.column} — ${label}` : label}
     >
-      <div className="flex justify-between items-start mb-2">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-bold uppercase tracking-wide text-gray-500">
-            #{index + 1}
-          </span>
-          <span className={`px-2 py-1 rounded text-xs font-semibold ${
-            issue.severity === 'critical' ? 'bg-red-200 text-red-800' :
-            issue.severity === 'high' ? 'bg-orange-200 text-orange-800' :
-            issue.severity === 'medium' ? 'bg-yellow-200 text-yellow-800' :
-            'bg-blue-200 text-blue-800'
-          }`}>
-            {issue.severity}
-          </span>
-        </div>
-        {onClick && (
-          <span className="text-blue-600 text-sm font-medium">
-            Cliquez pour suggestions →
-          </span>
-        )}
-      </div>
+      <span className="colrow-name">{issue.column || `—`}</span>
 
-      <h4 className="font-semibold text-gray-900 mb-1">
-        {label}
-      </h4>
+      <span className="colrow-kind">
+        {issue.semantic_type ? `${issue.semantic_type} · ` : ''}{label}
+      </span>
 
-      {issue.column && (
-        <p className="text-sm text-gray-600 mb-2">
-          Colonne: <code className="bg-gray-100 px-1 rounded">{issue.column}</code>
-          {issue.semantic_type && (
-            <span className="ml-2 text-xs bg-gray-200 px-2 py-0.5 rounded">
-              {issue.semantic_type}
-            </span>
-          )}
-        </p>
+      {rate !== null ? (
+        <span className="strip" role="img" aria-label={`${(rate * 100).toFixed(0)}% des lignes touchées`}>
+          <i style={{ width: `${rate * 100}%` }} />
+        </span>
+      ) : (
+        <span />
       )}
 
-      <p className="text-sm text-gray-700 mb-2">
-        {issue.description}
-      </p>
+      <span className="colrow-note">
+        {rate !== null && `${(rate * 100).toFixed(rate < 0.01 ? 2 : 0)} %`}
+        {rate !== null && touched !== null && ' · '}
+        {touched !== null && `${touched.toLocaleString('fr-FR')} lignes`}
+        <span className="meta-sep">·</span>
+        <span className={`sev sev--${issue.severity}`}>{severity}</span>
+      </span>
 
-      {issue.affected_rows && (
-        <p className="text-xs text-gray-500">
-          {issue.affected_rows.toLocaleString()} ligne(s) concernée(s)
-          {issue.rate && ` (${(issue.rate * 100).toFixed(1)}%)`}
-        </p>
-      )}
-      
-      {issue.count && (
-        <p className="text-xs text-gray-500">
-          {issue.count} valeur(s) manquante(s)
-          {issue.rate && ` (${(issue.rate * 100).toFixed(1)}%)`}
-        </p>
-      )}
-    </div>
+      <span className="colrow-desc">
+        <span>{issue.description}</span>
+        {onClick && <span className="colrow-hint">choisir une stratégie</span>}
+      </span>
+    </Tag>
   );
 };

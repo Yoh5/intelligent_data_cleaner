@@ -47,52 +47,52 @@ export const SuggestionModal: React.FC<SuggestionModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
+      className="modal-veil"
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
-      <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl">
+      <div className="modal-card">
         {/* Header */}
-        <div className="border-b p-4 flex justify-between items-center sticky top-0 bg-white z-10">
-          <h3 className="text-lg font-semibold">Stratégies de nettoyage</h3>
+        <div className="section-head">
+          <h3 className="section-label">comment corriger</h3>
           <button
             onClick={onClose}
             aria-label="Fermer"
-            className="text-gray-500 hover:text-gray-700 text-xl leading-none"
+            className="btn btn--quiet"
           >
             ✕
           </button>
         </div>
 
-        <div className="p-4">
-          <p className="text-sm text-gray-600 mb-4">
+        <div>
+          <p className="meta mb-5">
             <span className="font-medium">{issue.type}</span>
             {issue.column && (
               <>
                 {' — '}
-                <code className="bg-gray-100 px-1.5 py-0.5 rounded">{issue.column}</code>
+                <code className="font-mono">{issue.column}</code>
               </>
             )}
             {!issue.column && ' — Dataset entier'}
           </p>
 
           {rationale && (
-            <div className="mb-4 flex items-start gap-2 text-sm text-indigo-800 bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2">
-              <span aria-hidden className="mt-0.5">🤖</span>
-              <span><span className="font-semibold">Recommandation de l&apos;IA :</span> {rationale}</span>
-            </div>
+            <p className="note mb-5">
+              
+              <span className="note-who">strategie conseillee</span>
+            {rationale}</p>
           )}
 
           {strategies.length === 0 ? (
-            <div className="py-8 text-center text-gray-500">
+            <div className="alert">
               Aucune stratégie disponible pour ce type de problème.
             </div>
           ) : (
-            <div className="space-y-3">
+            <div>
               {strategies.map((strategy, idx) => (
                 <div
                   key={idx}
                   onClick={() => setSelected(idx)}
-                  className={`border-2 rounded-lg p-4 cursor-pointer transition-all ${
+                  className={`opt ${
                     selected === idx
                       ? 'border-blue-500 bg-blue-50'
                       : 'border-gray-200 hover:border-gray-300'
@@ -103,59 +103,40 @@ export const SuggestionModal: React.FC<SuggestionModalProps> = ({
                       type="radio"
                       checked={selected === idx}
                       onChange={() => setSelected(idx)}
-                      className="w-4 h-4 text-blue-600 mt-1 flex-shrink-0"
+                      className="mt-1 flex-shrink-0"
                     />
                     <div className="flex-1 min-w-0">
                       <div className="flex justify-between items-start gap-2 flex-wrap">
-                        <h4 className="font-semibold text-gray-900">{strategy.name}</h4>
-                        <div className="flex gap-1.5 flex-shrink-0">
-                          {idx === recommended && (
-                            <span className="text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded">
-                              Recommandé
-                            </span>
-                          )}
-                          <span
-                            className={`text-xs px-2 py-0.5 rounded ${
-                              strategy.confidence === 'high'
-                                ? 'bg-blue-100 text-blue-700'
-                                : strategy.confidence === 'medium'
-                                ? 'bg-yellow-100 text-yellow-700'
-                                : 'bg-gray-100 text-gray-600'
-                            }`}
-                          >
-                            {strategy.confidence}
-                          </span>
-                        </div>
+                        <h4 className="opt-name">{strategy.name}</h4>
+                        {idx === recommended && (
+                          <span className="colrow-kind flex-shrink-0">conseillée</span>
+                        )}
                       </div>
 
-                      <p className="text-sm text-gray-600 mt-1">{strategy.description}</p>
+                      <p className="opt-for mt-1">{strategy.description}</p>
 
-                      <div className="mt-3 grid grid-cols-2 gap-4 text-sm">
+                      <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
                         <div>
-                          <p className="text-green-700 font-medium mb-1">✓ Avantages</p>
-                          <ul className="space-y-0.5">
+                          <p className="colrow-kind mb-1">ce que ça vous donne</p>
+                          <ul>
                             {strategy.pros.map((pro, i) => (
-                              <li key={i} className="text-gray-600">
-                                • {pro}
-                              </li>
+                              <li key={i} className="opt-for">{pro}</li>
                             ))}
                           </ul>
                         </div>
                         <div>
-                          <p className="text-red-700 font-medium mb-1">✗ Inconvénients</p>
-                          <ul className="space-y-0.5">
+                          <p className="colrow-kind mb-1">ce que ça vous coûte</p>
+                          <ul>
                             {strategy.cons.map((con, i) => (
-                              <li key={i} className="text-gray-600">
-                                • {con}
-                              </li>
+                              <li key={i} className="opt-against">{con}</li>
                             ))}
                           </ul>
                         </div>
                       </div>
 
                       <div className="mt-3">
-                        <p className="text-xs text-gray-500 mb-1">Code généré :</p>
-                        <pre className="bg-gray-800 text-gray-100 p-2 rounded text-xs overflow-x-auto">
+                        <p className="colrow-kind mb-1">la ligne qui sera écrite</p>
+                        <pre className="code">
                           <code>{strategy.code_preview}</code>
                         </pre>
                       </div>
@@ -168,16 +149,15 @@ export const SuggestionModal: React.FC<SuggestionModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="border-t p-4 flex justify-end gap-3 sticky bottom-0 bg-white">
-          <button onClick={onClose} className="px-4 py-2 text-gray-600 hover:text-gray-800">
-            Annuler
-          </button>
+        <div className="flex justify-end gap-5 items-baseline"
+             style={{ marginTop: '1.4rem', paddingTop: '0.8rem', borderTop: '1px solid var(--rule)' }}>
+          <button onClick={onClose} className="btn btn--quiet">annuler</button>
           <button
             onClick={() => onSelect(strategies[selected])}
             disabled={strategies.length === 0}
-            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed"
+            className="btn btn--primary"
           >
-            Appliquer cette stratégie
+            appliquer
           </button>
         </div>
       </div>

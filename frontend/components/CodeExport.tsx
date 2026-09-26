@@ -90,7 +90,7 @@ export const CodeExport: React.FC<CodeExportProps> = ({
 
   if (steps.length === 0 && !generatedScript) {
     return (
-      <div className="p-6 text-center text-gray-500">
+      <div className="alert">
         Cliquez sur les problèmes pour choisir des stratégies de nettoyage.
       </div>
     );
@@ -99,23 +99,23 @@ export const CodeExport: React.FC<CodeExportProps> = ({
   const isExcel = originalFile?.name.match(/\.(xlsx|xls)$/i);
 
   return (
-    <div className="space-y-4">
+    <div>
       {/* Steps list — only shown when steps have code content */}
       {steps.length > 0 && steps.some((s) => s.code) && (
         <>
-          <h3 className="text-lg font-semibold text-gray-800">
+          <h3 className="section-label">
             Pipeline de nettoyage ({steps.length} étape{steps.length > 1 ? 's' : ''})
           </h3>
           <div className="space-y-2">
             {steps.map((step, idx) => (
-              <div key={idx} className="bg-gray-50 rounded p-3 border border-gray-200">
+              <div key={idx} style={{ padding: "0.6rem 0", borderTop: "1px solid var(--rule-soft)" }}>
                 <div className="flex justify-between items-center mb-2">
-                  <span className="font-medium text-gray-700">
+                  <span className="font-mono text-[0.82rem]">
                     #{idx + 1} {step.strategy_name}
                   </span>
-                  {step.column && <span className="text-sm text-gray-500">— {step.column}</span>}
+                  {step.column && <span className="meta">{step.column}</span>}
                 </div>
-                <pre className="text-xs bg-gray-800 text-gray-100 p-2 rounded overflow-x-auto">
+                <pre className="code" style={{ marginTop: "0.4rem" }}>
                   <code>{step.code}</code>
                 </pre>
               </div>
@@ -127,19 +127,19 @@ export const CodeExport: React.FC<CodeExportProps> = ({
       {/* Generated script */}
       {generatedScript && (
         <>
-          <div className="bg-gray-900 rounded-xl overflow-hidden shadow-2xl">
-            <div className="bg-gray-800 px-4 py-3 flex justify-between items-center flex-wrap gap-2">
-              <span className="text-gray-200 font-mono text-sm">{filename}</span>
-              <div className="flex gap-2 flex-wrap">
+          <div>
+            <div className="section-head">
+              <span className="section-label">{filename}</span>
+              <div className="flex gap-4 flex-wrap items-baseline">
                 <button
                   onClick={copyToClipboard}
-                  className="text-xs bg-gray-700 hover:bg-gray-600 text-gray-200 px-3 py-1.5 rounded transition-colors"
+                  className="btn btn--quiet"
                 >
                   {copied ? 'Copié !' : 'Copier'}
                 </button>
                 <button
                   onClick={downloadScript}
-                  className="text-xs bg-blue-700 hover:bg-blue-600 text-white px-3 py-1.5 rounded transition-colors"
+                  className="btn btn--quiet"
                 >
                   Télécharger .py
                 </button>
@@ -147,7 +147,7 @@ export const CodeExport: React.FC<CodeExportProps> = ({
                   <button
                     onClick={handleExecute}
                     disabled={isExecuting}
-                    className="text-xs bg-green-600 hover:bg-green-500 disabled:opacity-50 disabled:cursor-not-allowed text-white px-3 py-1.5 rounded transition-colors flex items-center gap-1.5"
+                    className="btn btn--primary"
                   >
                     {isExecuting ? (
                       <>
@@ -165,27 +165,27 @@ export const CodeExport: React.FC<CodeExportProps> = ({
                 {onRegenerate && (
                   <button
                     onClick={onRegenerate}
-                    className="text-xs bg-gray-600 hover:bg-gray-500 text-white px-3 py-1.5 rounded transition-colors"
+                    className="btn btn--quiet"
                   >
                     Recommencer
                   </button>
                 )}
               </div>
             </div>
-            <pre className="p-4 overflow-x-auto text-sm text-gray-300 font-mono leading-relaxed max-h-[500px] overflow-y-auto">
+            <pre className="code">
               {generatedScript}
             </pre>
           </div>
 
           {executeError && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">
+            <div className="alert alert--bad">
               {executeError}
             </div>
           )}
 
           {executeStats && (
-            <div className="bg-green-50 border border-green-200 rounded-xl p-5">
-              <h4 className="font-semibold text-green-800 mb-3">Script exécuté avec succès</h4>
+            <div className="panel">
+              <h4 className="section-label section-head">ce que le script a change</h4>
               <div className="grid grid-cols-3 gap-3">
                 <div className="bg-white rounded-lg p-3 shadow-sm text-center">
                   <div className="text-xl font-bold text-gray-800">
