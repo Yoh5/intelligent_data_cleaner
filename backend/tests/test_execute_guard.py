@@ -53,7 +53,7 @@ def test_the_script_the_generator_produces_is_accepted():
 
     script = _build_complete_script("ventes.csv", [
         {"step_number": 1, "column": "prix", "issue_type": "missing_values",
-         "code": "    df_clean['prix'] = df_clean['prix'].fillna(0)"},
+         "code": "    df['prix'] = df['prix'].fillna(0)"},
     ])
     ast.parse(script)          # le générateur le valide déjà
     check_script(script)       # et il doit passer ici aussi
@@ -134,6 +134,14 @@ def test_a_real_generated_script_still_runs_with_the_stripped_environment(tmp_pa
     Vider l'environnement d'un sous-processus Python est le genre de
     durcissement qui casse l'interpréteur sur une plateforme et pas sur
     l'autre. Ce test lance vraiment le script, sur un vrai fichier.
+
+    **L'étape ci-dessous écrivait `df_clean`**, et c'était le seul endroit du
+    dépôt à employer ce nom : les 70 `code_preview` de `suggest.py` écrivent
+    tous `df`. Le gabarit rendait alors `df_clean`, donc ce test passait —
+    pendant que le produit, lui, jetait silencieusement chaque nettoyage.
+    Deux erreurs qui s'annulaient, et une seule qui comptait.
+
+    L'étape est maintenant écrite comme une vraie stratégie l'écrit.
     """
     from fastapi.testclient import TestClient
 
@@ -142,7 +150,7 @@ def test_a_real_generated_script_still_runs_with_the_stripped_environment(tmp_pa
 
     script = _build_complete_script("ventes.csv", [
         {"step_number": 1, "column": "prix", "issue_type": "missing_values",
-         "code": "    df_clean['prix'] = df_clean['prix'].fillna(0)"},
+         "code": "    df['prix'] = df['prix'].fillna(0)"},
     ])
     csv = tmp_path / "ventes.csv"
     csv.write_text("prix,ville\n10,Casablanca\n,Rabat\n", encoding="utf-8")

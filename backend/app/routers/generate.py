@@ -283,15 +283,27 @@ def _build_complete_script(dataset_name: str, steps: List[dict]) -> str:
     lines.append("    logger.info('\\n' + '='*60)")
     lines.append("    logger.info('DÉBUT DU NETTOYAGE')")
     lines.append("    logger.info('='*60)")
-    lines.append("    df_clean = df.copy()")
-    lines.append("    initial_rows = len(df_clean)")
+    # La copie est prise SOUS LE MÊME NOM, et c'est ce qui rend le script
+    # correct. Avant : `df_clean = df.copy()`, les étapes écrivaient sur `df`
+    # — c'est ce que font les 70 `code_preview` de suggest.py, toutes sans
+    # exception — et la fonction rendait `df_clean`, la copie prise AVANT.
+    # Chaque nettoyage était donc jeté. Le script tournait, journalisait
+    # « RESULTAT », annonçait « 8 -> 8 lignes », et rendait le fichier
+    # d'origine : aucune erreur, aucun avertissement, et des données intactes
+    # présentées comme nettoyées.
+    #
+    # Réparer les 70 previews aurait été 70 occasions d'en oublier une. Le nom
+    # unique rend la classe d'erreur impossible : il n'existe plus deux
+    # DataFrames entre lesquels se tromper.
+    lines.append("    initial_rows = len(df)")
+    lines.append("    df = df.copy()  # on ne modifie pas le DataFrame de l'appelant")
     lines.append("    # ÉTAPES DE NETTOYAGE:")
     lines.append(steps_code)
     lines.append("")
     lines.append("    logger.info('\\n' + '='*60)")
     lines.append("    logger.info('RESULTAT')")
-    lines.append("    logger.info(f'Dimensions: {initial_rows} -> {len(df_clean)} lignes')")
-    lines.append("    return df_clean")
+    lines.append("    logger.info(f'Dimensions: {initial_rows} -> {len(df)} lignes')")
+    lines.append("    return df")
     lines.append("")
     lines.append("def save_data(df, output_path):")
     lines.append("    output_path = Path(output_path)")

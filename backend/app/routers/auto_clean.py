@@ -63,9 +63,17 @@ async def auto_clean(file: UploadFile = File(...)):
 
     # Couche agentique : le LLM raisonne sur les données réelles et choisit la
     # meilleure stratégie par problème (fail-open → {} = on garde l'index 0).
-    cols = analysis.get("columns", [])
-    column_types = {c.get("name"): c.get("semantic_type", "") for c in cols}
-    sample_data = {c.get("name"): c.get("sample_values", []) for c in cols}
+    # `analysis["columns"]` est un DICT indexé par nom, pas une liste. Écrit ici
+    # comme une liste, `for c in cols` itérait sur les clés — des chaînes — et
+    # `c.get(...)` levait une AttributeError. La route tombait donc en 500 sur
+    # tout fichier portant au moins un problème, c'est-à-dire sur tout fichier
+    # qu'on lui donne à nettoyer : seul un fichier déjà propre passait, parce
+    # qu'il sort plus haut. `agent_cleaner._advise` fait la même chose
+    # correctement depuis le début ; c'est ce bloc-ci qui avait été recopié de
+    # travers.
+    cols = analysis.get("columns", {}) or {}
+    column_types = {nom: info.get("semantic_type", "") for nom, info in cols.items()}
+    sample_data = {nom: info.get("sample_values", []) for nom, info in cols.items()}
     advice = advisor.advise(file.filename, column_types, advisor_issues, sample_data)
 
     validated_steps = []
