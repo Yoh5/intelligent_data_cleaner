@@ -36,10 +36,23 @@ class DataProfiler:
         self.df = None
         self.issues = []
 
-    async def analyze_file(self, content: bytes, filename: str) -> Dict[str, Any]:
-        """Analyse complète d'un fichier CSV/Excel."""
+    async def analyze_file(self, content: bytes, filename: str,
+                           texte_brut: bool = False) -> Dict[str, Any]:
+        """Analyse complète d'un fichier CSV/Excel.
+
+        `texte_brut=True` lit tout en chaînes et laisse l'appelant décider des
+        types. C'est ce que fait la passe sous contrat, et pour une raison
+        précise : pandas convertit `01000` en entier **au chargement**, le zéro
+        initial disparaît avant que le moindre contrôle ne s'exécute, et aucun
+        contrôle de type ne peut ensuite le voir puisque la colonne tient
+        parfaitement son type. Un code postal, un GEOID ou un matricule est
+        détruit en silence, et toute jointure ultérieure échoue sans raison
+        visible.
+
+        Le défaut reste `False` pour ne rien changer aux autres routes.
+        """
         try:
-            self.df = await self._load_file(content, filename)
+            self.df = await self._load_file(content, filename, texte_brut)
 
             if self.df is None or self.df.empty:
                 raise ValueError("Fichier vide")
@@ -80,7 +93,8 @@ class DataProfiler:
             print(f"ERREUR ANALYSE: {traceback.format_exc()}")
             raise
 
-    async def _load_file(self, content: bytes, filename: str) -> pd.DataFrame:
+    async def _load_file(self, content: bytes, filename: str,
+                         texte_brut: bool = False) -> pd.DataFrame:
         """Chargement robuste avec auto-détection."""
         filename_lower = filename.lower()
 
@@ -96,6 +110,7 @@ class DataProfiler:
                         na_values=self.MISSING_PATTERNS,
                         keep_default_na=True,
                         low_memory=False,
+                        dtype=str if texte_brut else None,
                     )
                     df.columns = self._sanitize_columns(df.columns)
                     return df
@@ -104,7 +119,8 @@ class DataProfiler:
             raise ValueError("Impossible de lire le CSV")
 
         elif filename_lower.endswith((".xlsx", ".xls")):
-            df = pd.read_excel(io.BytesIO(content))
+            df = pd.read_excel(io.BytesIO(content),
+                               dtype=str if texte_brut else None)
             df.columns = self._sanitize_columns(df.columns)
             return df
 
@@ -155,6 +171,15 @@ class DataProfiler:
         """Infère le type sémantique."""
         if pd.api.types.is_datetime64_any_dtype(series):
             return "datetime"
+
+        # Les booléens AVANT les numériques : pandas répond `True` à
+        # `is_numeric_dtype` pour une colonne de booléens, qui partait donc dans
+        # la branche numérique et jusqu'au test d'aberrance par quantiles — où
+        # numpy refuse de soustraire deux booléens et lève un TypeError. Un
+        # fichier de 17 colonnes dont 8 booléennes faisait planter toute
+        # l'analyse. Un booléen est une modalité, pas une quantité.
+        if pd.api.types.is_bool_dtype(series):
+            return "categorical"
 
         if pd.api.types.is_numeric_dtype(series):
             return "numeric"
@@ -245,7 +270,7 @@ class DataProfiler:
             # 4. Valeurs aberrantes (outliers) — colonnes numériques
             if info["semantic_type"] == "numeric":
                 series = self.df[col].dropna()
-                if len(series) >= 10:
+                if len(series) >= 10 and not pd.api.types.is_bool_dtype(series):
                     q1, q3 = float(series.quantile(0.25)), float(series.quantile(0.75))
                     iqr = q3 - q1
                     if iqr > 0:

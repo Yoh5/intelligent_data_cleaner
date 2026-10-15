@@ -30,7 +30,7 @@ OPENAI_API_KEY=<key> docker-compose up --build
 ```bash
 cd backend
 pip install pandas numpy openpyxl fastapi "pydantic>=2" pydantic-settings python-multipart httpx openai pytest
-pytest tests/ -q   # advisor, quality (score déterministe), agent_cleaner (boucle offline)
+pytest tests/ -q   # 124 tests : advisor, quality, agent_cleaner, contract, reparer, corpus
 ```
 CI : `.github/workflows/tests.yml` (push/PR). La boucle agentique tourne 100 % offline (conseiller fail-open → rule-based).
 
@@ -45,7 +45,195 @@ POST /generate/  → validated, downloadable .py script
 POST /auto-clean/ → one-pass autopilot (analyse → pick → script)
 POST /agent-clean/ → AGENTIC LOOP: measure quality → clean → re-profile → iterate,
                      keeping the best version (services/agent_cleaner.py + quality.py)
+POST /contract-clean/propose → the data contract this file would have to satisfy,
+                     given a declared USAGE; changes nothing (contract_infer.py)
+POST /contract-clean/  → CONTRACT PASS: repair toward the contract, verify it
+                     independently, deliver data + typed Parquet + what is
+                     guaranteed and what is not (agent_contrat.py + reparer.py)
+GET  /contract-clean/usages → the four usages and their labels
 ```
+
+### Contract pass vs agentic loop — read this before touching either
+
+`/agent-clean` optimises **its own profiler's issue list**: `quality.py` starts
+at 100 and subtracts a penalty per detected issue. So the loop maximises "my
+profiler no longer complains", which is not the same as "the data is usable".
+Measured on a 430-row CSV it reported **100/100** on output where:
+
+- `inconnu` had been imputed into 247 of 400 rows (it was the column's mode, and
+  `inconnu` is **not** in `DataProfiler.MISSING_PATTERNS`, which has `Unknown`);
+- `Rabat` and `rabat` were still distinct (no case check exists in the profiler);
+- a third of a numeric column sat on its median as a point mass;
+- every column came out as text.
+
+`/contract-clean/` fixes the objective rather than adding more rules. Three
+properties make it work, and all three are load-bearing:
+
+1. **`contract.py` never consults the profiler.** Every check is a measurement on
+   the DataFrame. That is what lets a report contradict the cleaner. Keep it that
+   way — inference lives in `contract_infer.py` precisely so the dependency only
+   goes one way.
+2. **A blocking violation caps the score** at `PLAFOND_BLOQUANT` (55). Without the
+   cap, one fatal defect drowns under a majority of passing checks, which is
+   exactly how 100/100 happened.
+3. **Information loss is in the objective.** `lignes_perdues_max` and
+   `imputation_max` make over-filling a *violation*, so the repair **refuses**
+   rather than fabricating. `reparer.Journal.refus` is the deliverable: it says
+   which guarantees the data cannot carry, and why.
+
+Two traps that cost real debugging time, both now covered by tests:
+
+- **Never inherit the profiler's blind spot.** `contract_infer` re-measures the
+  void rate (`taux_vide_reel`) and re-infers the type (`type_apres_nettoyage`)
+  on the marker-cleaned column. Without this, `age` was declared `string` with a
+  30% null ceiling when it is an integer column 62% empty.
+- **Measure rates on the post-dedup basis, not the raw file.** Dedup changes the
+  denominator: a ceiling computed before the repair was violated by the repair
+  itself (49.1% before, 51.0% after). `inferer` builds `base` first for this.
+
+### What real files broke, and what it cost to find out
+
+Everything above was validated on one synthetic 430-row CSV. Running the pass
+over seven real files (Telco Churn, Boston Housing, Online Retail, the Bias
+Bounty tables) found two defects a synthetic probe cannot produce, both now
+covered by tests:
+
+- **A boolean column crashed the profiler.** `pd.api.types.is_numeric_dtype`
+  returns True for `bool`, so boolean columns went down the numeric branch into
+  the 3xIQR outlier check, where numpy refuses to subtract two booleans. A file
+  with 8 boolean columns out of 17 took the whole analysis down. `bool` is now
+  classified `categorical`, which is what it is.
+- **`numeric-mixed` was taken literally.** The profiler calls a column
+  `numeric-mixed` when 70% of a sample parses as a number. On `StockCode` —
+  2 684 numeric references and 424 codes like `15044B` — the contract declared
+  `integer`, and conversion emptied 424 rows: the contract was violated by its
+  own repair. `contract_infer.type_tenable` now declares a numeric, temporal or
+  boolean type **only if the column holds it entirely**, and falls back to
+  `string` with examples otherwise. *Mixed* does not mean *86% numeric*; it
+  means the column holds codes, and a code is not a quantity.
+
+### The pathology corpus — `tests/corpus.py`
+
+Twenty files, **one pathology each**, with a stated expectation and a stated
+stake. Real files find what you did not think of; the corpus finds what you did,
+and tells you *which* case broke rather than handing you a tangle. `test_corpus.py`
+runs them one by one so a failure names itself.
+
+What it found on its first run, all now locked:
+
+- **Leading zeros were being eaten.** `01000` became `1000`, and no type check
+  could see it because the column held its declared type perfectly. The cause
+  was at load: pandas converts before anything else runs. The contract pass now
+  reads everything as text (`analyze_file(..., texte_brut=True)`) and decides
+  types itself — the third time in this module that refusing to inherit the
+  loader's verdict was the fix. A real file proves it: `SampleSubmission.csv`
+  carries Arizona GEOIDs (`04001944902`) that previously became `4001944902`,
+  which is exactly what the Bias Bounty brief warns about.
+- **A header-only file crashed with a 500.** It now returns 400 and says a file
+  with no data rows is normal before a first load and an incident after, and
+  that nothing in the file distinguishes the two.
+- **Accounting negatives `(1200)` went unflagged.** Stripping the parentheses
+  turns a debit into a credit. The inference counts and names them and leaves
+  the column as text; converting would mean deciding the file follows that
+  convention, and `(A12)` looks the same.
+
+**Writing a corpus case badly is easy.** The GEOID case first used FIPS 40
+(Oklahoma), which has no leading zero, so it passed while testing nothing.
+A case that cannot fail is worse than no case: it reports safety.
+
+### The public corpus — `corpus-public/`
+
+Five real datasets, downloaded rather than written, and **not versioned** (3.5 MB,
+differing licences; the URLs are in `corpus-public/README.md` and re-fetching
+takes thirty seconds). `tests/test_corpus_public.py` skips cleanly when the
+directory is empty.
+
+They are **data, not code**: they live outside `backend/`, nothing is ever
+executed from that directory, and the scripts that read them take paths as
+arguments. An interpreter started inside a data directory imports modules from
+it, and a file named `json.py` dropped there would run on the first `import json`.
+
+What they caught that the handwritten corpus did not:
+
+- **`?` is missing from `DataProfiler.MISSING_PATTERNS`**, which has `???`. UCI
+  Adult uses it on 5.6% of three columns — 1 700 voids that would have passed
+  for modalities. The wide re-measure catches it, score 0 to 100.
+- **Titanic vindicates the outlier default.** The pass flags `fare` = £512.33
+  (three times) and `sibsp` = 8 as outside the plausible interval. Both are
+  **real**: the Cardeza party held the most expensive tickets on the ship, and
+  the Sage family travelled eleven. A tool that clipped by default would destroy
+  the most interesting rows in the most-taught dataset in the field, silently,
+  while reporting success. This is the argument for `politique_aberrantes =
+  "signaler"`, and it is worth more than the reasoning that produced it.
+
+### Outliers: measured always, declared on request, never silently clipped
+
+The taxonomy of preprocessing lists "smoothing noisy data" under cleaning, and
+the pass deliberately does **not** do it by default. Three positions, and the
+default is the only one that fabricates nothing:
+
+- `contract_infer.plage_plausible` computes a robust interval (IQR x3, the same
+  factor `DataProfiler` uses, so the two never give different counts for one
+  column) and the inference **always reports** how many values fall outside it,
+  with examples, in `arbitrages`.
+- The range is **declared** in the contract only with `proposer_plages=True`.
+  Declaring it by default would make the contract unsatisfiable by the file it
+  was inferred from — the same self-contradiction as the null-ceiling bug.
+- `reparer.traiter_les_aberrantes` honours `ContratColonne.politique_aberrantes`:
+  `"signaler"` (default) touches nothing and records a refusal; `"ecreter"` and
+  `"vider"` are opt-in and obey the **imputation budget**, because clipping 300
+  incomes to the bound invents 300 identical incomes that never existed.
+
+The reason for the default is not timidity: an extreme value is sometimes a typo
+and sometimes the most important row in the file — a fraud, an outage, an edge
+case — and the column alone cannot tell them apart.
+
+**`pd.api.types.is_numeric_dtype` returns True for `bool`.** This trap has now
+closed three times in this project: the profiler's outlier quantiles, then
+`plage_plausible`'s interquartile subtraction, then the fix for the second
+promoting flag columns to `integer`. It is cut at the root in
+`contract._numerique`, which casts bool to float, with guards in
+`plage_plausible` and `type_apres_nettoyage`. Any new code that subtracts,
+quantiles or clips a column must assume a bool can arrive.
+
+**What the pass still does not do**, and mostly on purpose: no normalisation,
+encoding or scaling — fitting a scaler on a whole file leaks test information
+into training, and that belongs in a `Pipeline` fitted on the training split,
+not in a file-level tool. No multi-source integration and no reshaping; the
+contract's key and uniqueness checks are the natural basis for a future
+"are these two files joinable" command.
+
+### Performance, measured
+
+**1.8 MB/s for the whole pass** — 500 000 rows / 21 MB in 11.4 s (median of
+five runs, sd 0.8 s). Roughly linear. Where the time goes, after optimisation:
+inference ~45%, repair ~15%, verification ~8%, profiling and serialisation the
+rest.
+
+The inference was halved by removing duplicated work, not by cleverness: the
+same `astype(str).str.strip().str.lower()` was recomputed four times per column,
+`drop_duplicates` ran twice, and `_numerique` chained four separate
+`str.replace` passes where a fast path plus one regex does. `_Colonne` caches
+the normalised text and the numeric reading per column; keep using it rather
+than reaching for the raw series.
+
+**Do not re-attempt the single-regex marker match.** Replacing
+`strip().lower().isin()` with one `fullmatch` over an alternation of all markers
+looks obviously better and measured 10.6 s against 9.1 — but run-to-run sd is
+0.8 s, so it demonstrated nothing. It is documented in `contract.est_vide` so
+nobody spends the afternoon again.
+
+`/contract-clean/` caps uploads at **25 MB**, not the 100 MB the other routes
+announce: at 1.8 MB/s a 100 MB file needs nearly a minute, which no ordinary
+HTTP request survives — the client would get nothing at all. Going higher needs
+background processing with a job id, which is a different product.
+
+`reparer` applies five passes **in a fixed order** — empty markers, whitespace
+then case, declared types, dedup, imputation. The order is the safety: clearing
+markers first is what makes a mode impossible to poison. There is deliberately
+**no loop**: the repairs are deterministic and dependency-ordered, so a second
+pass changes nothing, and what remains is either refused on purpose or a failure
+to report.
 
 ### Backend (`backend/app/`)
 

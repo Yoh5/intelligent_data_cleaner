@@ -28,3 +28,9 @@ Thumbs.db
 
 # Build local (TypeScript incrémental)
 frontend/tsconfig.tsbuildinfo
+
+# Les jeux publics ne sont pas versionnes : 3,5 Mo et des licences qui
+# different. Leur README porte les URL, et le re-telechargement prend trente
+# secondes. tests/test_corpus_public.py se saute proprement si le dossier est vide.
+corpus-public/*
+!corpus-public/README.md

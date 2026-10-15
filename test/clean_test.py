@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Script de nettoyage automatique - Généré le 2026-03-22 19:27:23
+Script de nettoyage automatique - Généré le 2026-06-22 16:47:38
 Source: test.csv
 Ce script résout les problèmes suivants:
 #   - missing_values sur customerid
