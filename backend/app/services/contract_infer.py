@@ -48,8 +48,9 @@ import re
 import numpy as np
 import pandas as pd
 
-from app.services.contract import (MARQUEURS_VIDES, Contrat, ContratColonne,
-                                   _numerique, est_vide, part_convertible)
+from app.services.contract import (FORMES, MARQUEURS_VIDES, Contrat,
+                                   ContratColonne, _numerique, est_vide,
+                                   part_convertible)
 
 #: Les quatre usages, et ce que chacun rend rédhibitoire.
 USAGES: Dict[str, Dict[str, Any]] = {
@@ -319,6 +320,57 @@ def type_apres_nettoyage(s: pd.Series, defaut: str,
     return defaut
 
 
+#: Une forme se décide sur **deux** mesures, pas sur un seuil unique.
+#:
+#: Un seuil seul oblige à trancher arbitrairement : à 75 % d'adresses IPv4,
+#: faut-il déclarer la forme ? La question n'a pas de bonne réponse formulée
+#: ainsi, parce qu'elle ignore ce que sont les 25 % restants.
+#:
+#: « Trois quarts d'adresses IPv4, et le reste est deux jetons répétés » —
+#: c'est une colonne d'adresses avec des sentinelles, et rien d'autre ne
+#: l'explique. « Trois quarts d'adresses IPv4, et le reste est deux cents
+#: chaînes différentes » — ce n'est pas une colonne d'adresses, c'est une
+#: colonne qui en contient parfois.
+#:
+#: D'où les deux conditions, toutes deux mesurées et toutes deux citées dans
+#: la note : une part suffisante, ET un reste qui se compte sur les doigts.
+SEUIL_FORME = 0.70
+
+#: Au-delà, le reste n'est plus un jeu de sentinelles mais du bruit, et une
+#: forme déclarée viderait des valeurs qu'on ne comprend pas.
+RESTE_MAX_DISTINCT = 3
+
+#: Un plancher de lignes, pour qu'un hasard sur cinq valeurs ne fonde pas une
+#: contrainte permanente.
+FORME_LIGNES_MIN = 10
+
+
+def forme_tenable(propre: pd.Series) -> Optional[Tuple[str, float, List[str]]]:
+    """La forme que la colonne respecte, s'il y en a une défendable.
+
+    Rend `(nom, taux, reste)` — le taux et les valeurs restantes sont rendus
+    pour que la note puisse les citer : une contrainte proposée sans son appui
+    est une contrainte qu'on ne peut pas contester.
+    """
+    nn = propre.dropna().astype(str).str.strip()
+    nn = nn[nn != ""]
+    if len(nn) < FORME_LIGNES_MIN:
+        return None
+
+    meilleure: Optional[Tuple[str, float, List[str]]] = None
+    for nom, motif in FORMES.items():
+        correspond = nn.str.match(motif)
+        taux = float(correspond.mean())
+        if taux < SEUIL_FORME:
+            continue
+        reste = sorted(set(nn[~correspond]))
+        if len(reste) > RESTE_MAX_DISTINCT:
+            continue
+        if meilleure is None or taux > meilleure[1]:
+            meilleure = (nom, taux, reste[:3])
+    return meilleure
+
+
 def taux_vide_reel(s: pd.Series) -> float:
     """Taux de vide **mesuré**, marqueurs textuels compris.
 
@@ -535,6 +587,29 @@ def inferer(analysis: Dict[str, Any], df: pd.DataFrame,
 
         cc = ContratColonne(nom=nom, type=type_, nullable=nullable,
                             taux_nul_max=plafond)
+
+        # La forme : à quoi les valeurs doivent ressembler. Le type dit ce
+        # qu'une valeur est ; il ne dit pas que `999.1.2.3` n'est pas une
+        # adresse. C'est le contrôle qui manquait, et c'est celui qui compte
+        # sur un journal réseau.
+        if type_ in ("string", "category") and nom in base.columns:
+            trouvee = forme_tenable(base[nom])
+            if trouvee is not None:
+                forme, taux, reste = trouvee
+                cc.forme = forme
+                if reste:
+                    notes.append(
+                        f"« {nom} » : forme « {forme} » proposée — "
+                        f"{taux * 100:.1f}% des valeurs la respectent et le "
+                        f"reste tient en {len(reste)} jeton(s) répété(s) "
+                        f"({', '.join(reste)}), qui deviendront des vides et "
+                        f"tomberont sous le budget d'imputation plutôt que "
+                        f"d'être corrigés.")
+                else:
+                    notes.append(
+                        f"« {nom} » : forme « {forme} » proposée — toutes les "
+                        f"valeurs la respectent ici, la contrainte ne protège "
+                        f"donc que les chargements suivants.")
 
         if proposer_domaines and type_ == "category" and nom in base.columns:
             vus = base[nom].dropna().astype(str).str.strip()

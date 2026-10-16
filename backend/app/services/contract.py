@@ -41,6 +41,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
+import re
+
 import numpy as np
 import pandas as pd
 
@@ -84,6 +86,28 @@ FAUX = frozenset({"0", "false", "faux", "no", "non", "n", "f"})
 
 TYPES = ("integer", "number", "boolean", "datetime", "category", "string")
 
+#: Les formes qu'une colonne de texte peut être tenue de respecter.
+#:
+#: Un type dit ce qu'une valeur **est** ; une forme dit à quoi elle doit
+#: **ressembler**. `source_ip` est du texte pour n'importe quel type, et
+#: `999.1.2.3` est du texte parfaitement valide — seule une forme le refuse.
+#: C'est le contrôle qui manquait, et c'est celui qui compte sur des données
+#: de sécurité : une adresse, un port, un condensat, une adresse MAC.
+#:
+#: Les motifs sont volontairement stricts. Un motif permissif laisse passer ce
+#: qu'il prétend attraper, et une forme qui ne refuse rien est pire qu'absente
+#: puisqu'elle rassure.
+FORMES: Dict[str, str] = {
+    "ipv4": r"^((25[0-5]|2[0-4]\d|[01]?\d?\d)\.){3}(25[0-5]|2[0-4]\d|[01]?\d?\d)$",
+    "ipv6": r"^(([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|::|([0-9a-fA-F]{1,4}:){1,7}:|:(:[0-9a-fA-F]{1,4}){1,7})$",
+    "mac": r"^([0-9a-fA-F]{2}[:-]){5}[0-9a-fA-F]{2}$",
+    "email": r"^[^@\s]+@[^@\s.]+\.[^@\s]{2,}$",
+    "uuid": r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+    "url": r"^https?://[^\s/$.?#][^\s]*$",
+    "sha256": r"^[0-9a-fA-F]{64}$",
+    "md5": r"^[0-9a-fA-F]{32}$",
+}
+
 #: Une violation bloquante plafonne le score : on ne peut pas être « à 100 »
 #: avec une clé non unique ou une colonne qui refuse son type. C'est ce plafond
 #: qui rend impossible le 100/100 observé sur des données inutilisables.
@@ -98,7 +122,7 @@ POIDS = {
     "marqueur_vide_en_valeur": 15, "colonne_supprimee": 20,
     "doublons_lignes": 12, "taux_nul_depasse": 10, "imputation_excessive": 12,
     "masse_ponctuelle": 12, "lignes_perdues": 15, "hors_domaine": 8,
-    "hors_plage": 8, "collision_de_casse": 6, "colonne_inattendue": 2,
+    "hors_plage": 8, "hors_forme": 10, "collision_de_casse": 6, "colonne_inattendue": 2,
 }
 
 
@@ -117,6 +141,10 @@ class ContratColonne:
     minimum: Optional[float] = None
     maximum: Optional[float] = None
     format_date: Optional[str] = None
+    #: La forme que chaque valeur non vide doit respecter : un nom de `FORMES`
+    #: ou une expression régulière. Une valeur qui ne la respecte pas est une
+    #: **violation**, jamais une valeur corrigée en silence.
+    forme: Optional[str] = None
     #: Budget d'imputation propre à la colonne ; `None` -> celui du contrat.
     imputation_max: Optional[float] = None
     #: Que faire des valeurs hors de [minimum, maximum] :
@@ -140,6 +168,16 @@ class ContratColonne:
     def __post_init__(self) -> None:
         if self.type not in TYPES:
             raise ValueError(f"type inconnu : {self.type!r} (attendu : {TYPES})")
+        if self.forme is not None and self.forme not in FORMES:
+            # Un nom inconnu est traité comme une expression régulière, mais
+            # il doit compiler : une regex fautive refuserait tout, ce qui se
+            # lirait comme une colonne entièrement invalide.
+            try:
+                re.compile(self.forme)
+            except re.error as erreur:
+                raise ValueError(
+                    f"forme {self.forme!r} : ni un nom connu {tuple(FORMES)} "
+                    f"ni une expression régulière valide ({erreur})") from erreur
         if not self.nullable:
             self.taux_nul_max = 0.0
 
@@ -459,6 +497,25 @@ def verify(df: pd.DataFrame, contrat: Contrat,
                     exemples=sorted(set(dehors.astype(str)))[:3]))
             else:
                 r.satisfait.append(f"« {nom} » reste dans son domaine déclaré")
+
+        # 5 bis. Forme — à quoi la valeur doit ressembler.
+        #
+        # Séparé du domaine exprès : un domaine énumère les valeurs permises,
+        # une forme décrit celles qu'on ne peut pas énumérer. On ne liste pas
+        # les adresses IP valides.
+        if cc.forme is not None:
+            motif = re.compile(FORMES.get(cc.forme, cc.forme))
+            vus = texte_nn if texte_nn is not None else _texte(s).dropna()
+            mauvaises = vus[~vus.astype(str).str.match(motif)]
+            if len(mauvaises):
+                r.violations.append(Violation(
+                    "hors_forme", nom,
+                    f"« {nom} » : {len(mauvaises)} valeur(s) ne respectent pas "
+                    f"la forme « {cc.forme} »",
+                    mesure=float(len(mauvaises)),
+                    exemples=sorted(set(mauvaises.astype(str)))[:3]))
+            else:
+                r.satisfait.append(f"« {nom} » respecte la forme « {cc.forme} »")
 
         # 6. Plage
         if cc.minimum is not None or cc.maximum is not None:

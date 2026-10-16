@@ -37,14 +37,15 @@ agrégé détruit.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
 
-from app.services.contract import (MARQUEURS_VIDES, Contrat, ContratColonne,
-                                   convertir)
+from app.services.contract import (FORMES, MARQUEURS_VIDES, Contrat,
+                                   ContratColonne, convertir)
 
 #: Au-delà de cette part imputée, on ajoute une colonne indicatrice. Imputer
 #: sans trace rend une valeur inventée indiscernable d'une valeur observée ;
@@ -152,6 +153,38 @@ def _forme_canonique(variantes: List[str], freq: pd.Series) -> str:
         return (not majuscule_initiale, tout_majuscule, -scores[v], v)
 
     return sorted(tetes, key=rang)[0]
+
+
+def vider_les_hors_forme(df: pd.DataFrame, contrat: Contrat,
+                         j: Journal) -> pd.DataFrame:
+    """Une valeur qui ne respecte pas sa forme devient un **vide**.
+
+    Pas une valeur corrigée. `999.1.2.3` n'est pas une adresse qu'on peut
+    réparer : on ignore ce qu'elle aurait dû être, et la remplacer par
+    `0.0.0.0` fabriquerait un fait sur un événement de sécurité. Elle devient
+    un vide, et ce vide tombe sous le budget d'imputation comme les autres —
+    donc si les adresses invalides sont nombreuses, la réparation **refuse**
+    au lieu d'inventer une flotte de machines qui n'existent pas.
+
+    Placée juste après les marqueurs, et pour la même raison : une adresse
+    invalide laissée en place est une modalité qui peut empoisonner un mode.
+    """
+    for cc in contrat.colonnes:
+        if cc.forme is None or cc.nom not in df.columns:
+            continue
+        motif = re.compile(FORMES.get(cc.forme, cc.forme))
+        serie = df[cc.nom]
+        nn = serie.notna()
+        mauvaises = nn & ~serie.astype(str).str.match(motif)
+        combien = int(mauvaises.sum())
+        if combien:
+            exemples = sorted(set(serie[mauvaises].astype(str)))[:3]
+            df.loc[mauvaises, cc.nom] = np.nan
+            j.fait("vider_hors_forme", cc.nom,
+                   f"{combien} valeur(s) hors de la forme « {cc.forme} » "
+                   f"vidée(s) — {', '.join(exemples)}",
+                   mesure=float(combien))
+    return df
 
 
 def nettoyer_le_texte(df: pd.DataFrame, contrat: Contrat,
@@ -429,10 +462,13 @@ def traiter_les_aberrantes(df: pd.DataFrame, contrat: Contrat,
 
 
 def appliquer(df: pd.DataFrame, contrat: Contrat) -> tuple[pd.DataFrame, Journal]:
-    """Les cinq passes, dans l'ordre, sur une copie."""
+    """Les six passes, dans l'ordre, sur une copie."""
     j = Journal()
     d = df.copy()
     d = vider_les_marqueurs(d, j)
+    # Les hors-forme juste après : une adresse invalide laissée en place est
+    # une modalité, et une modalité peut empoisonner un mode.
+    d = vider_les_hors_forme(d, contrat, j)
     d = nettoyer_le_texte(d, contrat, j)
     d = poser_les_types(d, contrat, j)
     d = dedupliquer(d, contrat, j)

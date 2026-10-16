@@ -30,7 +30,7 @@ OPENAI_API_KEY=<key> docker-compose up --build
 ```bash
 cd backend
 pip install pandas numpy openpyxl fastapi "pydantic>=2" pydantic-settings python-multipart httpx openai pytest
-pytest tests/ -q   # 151 tests : advisor, quality, agent_cleaner, contract, reparer, corpus, preparation, bout-en-bout
+pytest tests/ -q   # 173 tests : advisor, quality, agent_cleaner, contract, reparer, corpus, preparation, forme, bout-en-bout
 ```
 CI : `.github/workflows/tests.yml` (push/PR). La boucle agentique tourne 100 % offline (conseiller fail-open → rule-based).
 
@@ -114,6 +114,31 @@ covered by tests:
   boolean type **only if the column holds it entirely**, and falls back to
   `string` with examples otherwise. *Mixed* does not mean *86% numeric*; it
   means the column holds codes, and a code is not a quantity.
+
+### Shape: what a value must look like — `contract.FORMES`
+
+A type says what a value **is**; it never says that `999.1.2.3` is not an
+address. Four of the five checks in HTB Academy's *Applications of AI in
+InfoSec* preprocessing section were already expressible (`domaine` for the
+protocol list, `minimum`/`maximum` for ports, bytes and threat level). The
+fifth was not, and it is the one that matters on security data.
+
+`ContratColonne.forme` takes a name from `FORMES` (ipv4, ipv6, mac, email,
+uuid, url, sha256, md5) or any regex, which must compile at declaration — a
+broken regex rejects everything, which reads as an entirely invalid column.
+
+**Inference decides on two measures, not a threshold.** At 75% IPv4, a single
+threshold forces an arbitrary call because it ignores what the other 25% are.
+Three quarters addresses with two repeated tokens is an address column with
+sentinels; three quarters addresses with two hundred distinct strings is not.
+Hence `SEUIL_FORME` **and** `RESTE_MAX_DISTINCT`, both quoted in the note.
+
+`reparer.vider_les_hors_forme` runs immediately after the markers pass, for
+the same reason that one runs first: an invalid address left in place is a
+modality, and a modality can poison a mode. The value becomes a void and falls
+under the imputation budget — so a file with a quarter of its addresses
+invalid **fails its contract** rather than gaining a fleet of machines that do
+not exist. Do not add a default fill for this; the refusal is the feature.
 
 ### The preparation chain — `services/preparation.py`
 

@@ -14,7 +14,7 @@ la liste de ce qu'elle n'a pas pu faire.
 ![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-green.svg)
 ![Next.js](https://img.shields.io/badge/Next.js-16+-black.svg)
-![tests](https://img.shields.io/badge/tests-151-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-173-brightgreen.svg)
 
 ---
 
@@ -65,6 +65,34 @@ Trois propriétés portent tout le reste, et elles sont délibérées :
   réparation **refuse** au lieu de fabriquer. Le journal des refus est un
   livrable : il dit quelles garanties les données ne peuvent pas porter, et
   pourquoi.
+
+### 1 bis. La **forme** d'une valeur, pas seulement son type
+
+Un type dit ce qu'une valeur **est** ; une forme dit à quoi elle doit
+**ressembler**. `999.1.2.3` est du texte parfaitement valide, et aucun contrôle
+de type ne le refusera jamais. C'est le contrôle qui manquait, et c'est celui
+qui compte sur des données de sécurité.
+
+Huit formes connues — `ipv4`, `ipv6`, `mac`, `email`, `uuid`, `url`, `sha256`,
+`md5` — plus n'importe quelle expression régulière, qui doit compiler à la
+déclaration : une regex fautive refuserait tout, ce qui se lirait comme une
+colonne entièrement invalide.
+
+**Elle est détectée, pas seulement déclarable**, et sur **deux** mesures plutôt
+qu'un seuil. À 75 % d'adresses IPv4, faut-il déclarer la forme ? La question
+n'a pas de bonne réponse posée ainsi, parce qu'elle ignore ce que sont les
+25 % restants :
+
+- *trois quarts d'adresses, et le reste est deux jetons répétés* → c'est une
+  colonne d'adresses avec des sentinelles, rien d'autre ne l'explique ;
+- *trois quarts d'adresses, et le reste est deux cents chaînes différentes* →
+  ce n'est pas une colonne d'adresses, c'en est une qui en contient parfois.
+
+D'où une part minimale **et** un reste qui se compte sur les doigts, tous deux
+cités dans la note pour qu'on puisse les contester.
+
+Une valeur hors forme devient un **vide**, jamais une autre valeur — et ce vide
+tombe sous le budget d'imputation comme les autres.
 
 ### 2. Une chaîne de préparation, ajustée après la séparation
 
@@ -207,7 +235,7 @@ uvicorn app.main:app --reload          # http://localhost:8000/docs
 # Frontend
 cd frontend && npm install && npm run dev   # http://localhost:3000
 
-# Tests — 151, sans réseau et sans clé
+# Tests — 173, sans réseau et sans clé
 cd backend && python -m pytest tests/ -q
 ```
 
@@ -227,6 +255,29 @@ entièrement fonctionnelle.
 | `POST /contract-clean/propose` | le contrat qu'il faudrait tenir — ne change rien |
 | `POST /contract-clean/` | répare, vérifie, livre données + Parquet + garanties |
 | `POST /prepare/` | la chaîne de préparation, ajustée après la séparation |
+
+---
+
+## Un cas réel : le prétraitement d'un journal réseau
+
+Le module *Applications of AI in InfoSec* de HTB Academy fait valider cinq
+colonnes : `source_ip` contre une expression régulière, `destination_port`
+dans 0–65535, `protocol` contre une liste, `bytes_transferred` positif,
+`threat_level` dans 0–2. Les cinq sont **déclarables dans le contrat**, aucun
+n'est codé à la main, et `tests/test_forme.py` les couvre un par un.
+
+Sur ce fichier, l'outil détecte seul la forme `ipv4`, voit les trois
+sentinelles, et **refuse** : vider 25 % d'une colonne dépasse le budget
+d'imputation de l'usage « entraîner un modèle », donc le contrat n'est pas
+tenu et le rapport le dit.
+
+Deux endroits où il fait délibérément autrement que l'exercice :
+
+| l'exercice | ici |
+|---|---|
+| `df['source_ip'].fillna('0.0.0.0')` | **non** — on ignore ce que l'adresse aurait dû être, et la remplacer fabrique un fait sur un événement de sécurité : une machine qui n'existe pas apparaît dans le journal |
+| `.clip(lower=0, upper=65535)` | **non par défaut** — un port 70000 ramené à 65535 devient un port plausible jamais observé, et toute statistique faite ensuite porte sur une distribution façonnée |
+| `imputer.fit_transform(df)` sur tout le fichier | `/prepare/` ajuste **après** la séparation |
 
 ---
 
