@@ -30,7 +30,7 @@ OPENAI_API_KEY=<key> docker-compose up --build
 ```bash
 cd backend
 pip install pandas numpy openpyxl fastapi "pydantic>=2" pydantic-settings python-multipart httpx openai pytest
-pytest tests/ -q   # 124 tests : advisor, quality, agent_cleaner, contract, reparer, corpus
+pytest tests/ -q   # 151 tests : advisor, quality, agent_cleaner, contract, reparer, corpus, preparation, bout-en-bout
 ```
 CI : `.github/workflows/tests.yml` (push/PR). La boucle agentique tourne 100 % offline (conseiller fail-open → rule-based).
 
@@ -51,6 +51,9 @@ POST /contract-clean/  → CONTRACT PASS: repair toward the contract, verify it
                      independently, deliver data + typed Parquet + what is
                      guaranteed and what is not (agent_contrat.py + reparer.py)
 GET  /contract-clean/usages → the four usages and their labels
+POST /prepare/        → the PREPARATION CHAIN: a standalone sklearn Pipeline,
+                     fitted after the split, never on the whole file
+                     (services/preparation.py)
 ```
 
 ### Contract pass vs agentic loop — read this before touching either
@@ -111,6 +114,45 @@ covered by tests:
   boolean type **only if the column holds it entirely**, and falls back to
   `string` with examples otherwise. *Mixed* does not mean *86% numeric*; it
   means the column holds codes, and a code is not a quantity.
+
+### The preparation chain — `services/preparation.py`
+
+**Read this before adding any scaling, encoding or normalisation anywhere
+else.** This module exists because the ban on them was right and the gap was
+real at the same time.
+
+The ban: fitting a transformer on the whole file leaks test information into
+training. A `StandardScaler` fitted before the split knows the mean of rows it
+is meant never to have seen, and every evaluation afterwards is optimistic by
+an amount nobody can measure. That reason has not gone away and must not be
+traded against convenience.
+
+The resolution: **do not transform the file, emit the chain.** `/prepare/`
+returns a standalone script where `train_test_split` comes before `fit` and no
+parameter allows the reverse — a parameter that permitted the leak is a
+parameter somebody would eventually pass.
+
+Three things are load-bearing:
+
+1. **The type vocabulary is imported from `contract.TYPES`, not copied.** A
+   duplicated list diverges, and a type with no role here would fall silently
+   into the categorical branch and be one-hot encoded instead of excluded. The
+   module asserts the correspondence at import and `test_preparation.py` pins
+   it.
+2. **The leak test executes the generated script** and compares the mean the
+   `StandardScaler` actually learned against the training mean and the
+   whole-file mean. An assertion on the script's *text* would pass over code
+   that leaks. Checked by introducing the leak deliberately — note that
+   `fit(X)` followed by `fit(X_train)` re-fits and erases it, so a sabotage
+   must replace the fit, not precede it.
+3. **Every exclusion carries its reason**, and the generated script writes
+   them in its header. A column that disappears without explanation is a
+   column somebody will believe was used. Key, constant, high-cardinality and
+   temporal columns are dropped by rule, each with its count.
+
+`MODALITES_MAX = 30` and `LIGNES_MIN = 50` are choices, not laws: declared at
+module level, overridable, and written into the generated script so they can
+be argued with.
 
 ### The pathology corpus — `tests/corpus.py`
 
@@ -196,10 +238,10 @@ promoting flag columns to `integer`. It is cut at the root in
 `plage_plausible` and `type_apres_nettoyage`. Any new code that subtracts,
 quantiles or clips a column must assume a bool can arrive.
 
-**What the pass still does not do**, and mostly on purpose: no normalisation,
-encoding or scaling — fitting a scaler on a whole file leaks test information
-into training, and that belongs in a `Pipeline` fitted on the training split,
-not in a file-level tool. No multi-source integration and no reshaping; the
+**What the pass still does not do**, and mostly on purpose: the contract pass
+itself performs no normalisation, encoding or scaling — that is `/prepare/`'s
+job, and it does it by emitting a `Pipeline` fitted on the training split
+rather than by touching the file. No multi-source integration and no reshaping; the
 contract's key and uniqueness checks are the natural basis for a future
 "are these two files joinable" command.
 

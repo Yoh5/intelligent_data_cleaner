@@ -1,168 +1,248 @@
+![Intelligent Data Cleaner](docs/cover.png)
+
 # Intelligent Data Cleaner
 
-Plateforme web d'analyse et de nettoyage automatisé de données CSV/Excel. Détecte les problèmes de qualité de données, propose des stratégies de nettoyage contextuelles et génère des scripts Python autonomes, validés syntaxiquement et prêts à l'emploi.
+Le prétraitement d'un fichier tabulaire, en entier — **et ce qu'il refuse de
+faire, dit en clair.**
 
-**Couche agentique** : un conseiller LLM **raisonne sur les données réelles** (types, sévérité, échantillon) pour **choisir ET justifier** la meilleure stratégie par problème — avec **repli rule-based automatique** si aucune clé OpenAI n'est configurée (l'app reste 100 % fonctionnelle sans LLM).
-
-**Boucle agentique autonome** (`/agent-clean`) : au lieu d'une passe unique, l'agent poursuit un **objectif chiffré de qualité** — il **mesure** la qualité des données (score déterministe), **nettoie** (le LLM choisit la stratégie par problème), **re-profile** le résultat, et **itère** jusqu'à la cible en **gardant la meilleure version**. Il renvoie la trace (qualité avant → après), le CSV nettoyé et un script pandas reproductible. Testé sans réseau (`services/quality.py`, `services/agent_cleaner.py`).
+Déposez un CSV ou un Excel. L'outil vous rend trois choses : les données
+réparées, un **contrat** qui dit ce qu'elles garantissent désormais, et une
+**chaîne de préparation** prête pour l'apprentissage. Chacune des trois porte
+la liste de ce qu'elle n'a pas pu faire.
 
 [![tests](https://github.com/Yoh5/intelligent_data_cleaner/actions/workflows/tests.yml/badge.svg)](https://github.com/Yoh5/intelligent_data_cleaner/actions/workflows/tests.yml)
 ![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.104+-green.svg)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-green.svg)
 ![Next.js](https://img.shields.io/badge/Next.js-16+-black.svg)
-![React](https://img.shields.io/badge/React-19+-61DAFB.svg)
-![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-3178C6.svg)
+![tests](https://img.shields.io/badge/tests-151-brightgreen.svg)
 
 ---
 
-## Fonctionnalités
+## La thèse, en un paragraphe
 
-### Analyse de données
-- Chargement CSV/Excel avec auto-détection de l'encodage (UTF-8, Latin-1, cp1252) et du délimiteur (`,` `;`)
-- Détection de 25+ patterns de valeurs manquantes (`NA`, `null`, `N/A`, `???`, espaces, etc.)
-- Inférence du type sémantique par colonne : `numeric`, `numeric-mixed`, `categorical`, `id`, `datetime`, `datetime-mixed`, `text`
-- Détection de 6 catégories de problèmes :
-  - Valeurs manquantes (sévérité adaptive : low → critical selon le taux)
-  - Types mixtes (nombres stockés en texte)
-  - Lignes entièrement dupliquées
-  - Doublons sur colonnes identifiant
-  - Valeurs aberrantes (règle 3×IQR sur colonnes numériques)
-  - Espaces superflus (texte/catégoriel)
-  - Dates stockées en texte
+Un nettoyeur qui note lui-même son travail finit toujours par se donner une
+bonne note. Celui-ci a commencé comme ça, et la mesure est dans le dépôt :
+sur un fichier de 430 lignes, la boucle agentique a rendu **100/100** sur une
+sortie où `inconnu` avait été imputé dans **247 lignes sur 400**, où `Rabat`
+et `rabat` restaient deux modalités distinctes, où un tiers d'une colonne
+numérique s'était posé sur sa médiane, et où toutes les colonnes sortaient en
+texte.
 
-### Décision agentique (conseiller LLM)
-Quand une clé OpenAI est configurée, un conseiller LLM (`services/advisor.py`) lit le contexte du dataset (types de colonnes, problèmes, échantillon) et, pour chaque problème, **choisit la meilleure stratégie parmi les candidates ET la justifie** en une phrase (`rationale`). C'est le passage d'un moteur *déterministe* à un agent qui *décide en fonction des données*.
-- Utilisé par `/suggest/batch` (recommandation + justification) et par l'**Autopilot** (`/auto-clean/`, choix par problème).
-- **Fail-open total** : sans clé, erreur réseau/LLM ou JSON illisible → repli sur la stratégie rule-based recommandée (`recommended = 0`). L'app ne dépend jamais du LLM.
-- Réponses des endpoints : champ `advisor_used` (bool) pour savoir si le LLM a effectivement pesé.
+Rien n'était faux dans la boucle. **L'objectif l'était** : elle optimisait la
+liste de problèmes de son propre profileur, c'est-à-dire sa propre opinion.
 
-### Stratégies de nettoyage
-Chaque problème reçoit 2 à 4 stratégies adaptées au type sémantique de la colonne :
+La réponse n'a pas été d'ajouter des règles. Elle a été de changer ce qu'on
+mesure, et de le faire mesurer par autre chose.
 
-| Problème | Stratégies |
+---
+
+## Les trois choses que l'outil rend
+
+### 1. Un contrat, vérifié indépendamment du nettoyeur
+
+`POST /contract-clean/` — vous déclarez un **usage**, l'outil en déduit ce que
+le fichier doit garantir, le répare dans cette direction, puis **vérifie** le
+résultat sans jamais consulter le profileur.
+
+| usage | imputation max | lignes perdues max | clé exigée |
+|---|---|---|---|
+| entraîner un modèle | 10 % | 5 % | non |
+| charger en base | **0 %** | **0 %** | oui |
+| alimenter un tableau de bord | 20 % | 10 % | non |
+| joindre à une autre table | 5 % | **0 %** | oui |
+
+Trois propriétés portent tout le reste, et elles sont délibérées :
+
+- **La vérification ne consulte pas le nettoyeur.** `contract.py` ne mesure
+  que le DataFrame. C'est ce qui permet au rapport de **contredire** la
+  réparation, et c'est pourquoi l'inférence vit ailleurs (`contract_infer.py`)
+  — la dépendance ne va que dans un sens.
+- **Une violation bloquante plafonne le score à 55.** Sans ce plafond, un
+  défaut fatal se noie sous une majorité de contrôles réussis : c'est
+  exactement ainsi qu'un 100/100 arrive.
+- **La perte d'information est dans l'objectif.** `lignes_perdues_max` et
+  `imputation_max` font du sur-remplissage une **violation**, donc la
+  réparation **refuse** au lieu de fabriquer. Le journal des refus est un
+  livrable : il dit quelles garanties les données ne peuvent pas porter, et
+  pourquoi.
+
+### 2. Une chaîne de préparation, ajustée après la séparation
+
+`POST /prepare/` — vides, types, encodage, mise à l'échelle. Le prétraitement
+complet, **sans la fuite qui le rendait malhonnête.**
+
+Ce projet a longtemps refusé l'encodage et la mise à l'échelle, et la raison
+était juste : **ajuster un transformateur sur le fichier entier fait fuiter
+l'information du test dans l'entraînement.** Un `StandardScaler` ajusté avant
+la séparation connaît la moyenne des lignes qu'il est censé n'avoir jamais
+vues, et toute évaluation faite ensuite est optimiste d'une quantité qu'on ne
+sait pas mesurer.
+
+La raison n'a pas disparu. Ce qui a changé, c'est qu'**on ne transforme pas le
+fichier : on rend la chaîne**, sous forme d'un script autonome où
+`train_test_split` passe avant `fit`, et où il n'existe aucune option pour
+faire l'inverse.
+
+Un test l'établit en exécutant le script produit, en lisant la moyenne que le
+`StandardScaler` a réellement apprise, et en la comparant à celle de
+l'entraînement **et** à celle du fichier entier. Une assertion sur le texte du
+script passerait sur du code qui fuit.
+
+Et il écarte plutôt que de traiter au jugé, chaque fois avec sa raison :
+
+| colonne écartée | raison |
 |---|---|
-| Valeurs manquantes numériques | Médiane / Moyenne / ffill / Supprimer lignes |
-| Valeurs manquantes catégorielles | Mode / Constante "Inconnu" / Supprimer lignes |
-| Valeurs manquantes datetime | ffill / Supprimer lignes |
-| Outliers | Écrêtage IQR / Écrêtage percentile / Supprimer lignes |
-| Espaces | Strip / Strip + minuscules |
-| Dates en texte | `pd.to_datetime()` |
-| Types mixtes | Conversion numérique avec gestion des virgules/devises |
-| Doublons | Garder premier / Garder dernier |
+| clé primaire | un identifiant n'explique rien, il désigne une ligne |
+| 300 modalités | un one-hot produirait plus de colonnes qu'il n'en explique |
+| colonne constante | variance nulle, et certains estimateurs la refusent |
+| date | la dériver exige de savoir ce que le modèle doit apprendre |
 
-### Génération de scripts
-- Scripts Python autonomes (incluent leurs propres helpers `load_data`, `detect_encoding`, `detect_delimiter`)
-- Validation AST avant export (garantie syntaxique)
-- Auto-correction des méthodes Pandas dépréciées (ex: `fillna(method='ffill')` → `ffill()`)
-- Fallback garanti : chaque colonne a toujours un code de secours valide
+### 3. Un script de nettoyage autonome
 
-### Exécution & téléchargement
-- Exécution du script directement depuis l'interface sur le fichier original
-- Retourne `.xlsx` si l'entrée était Excel, `.csv` sinon
-- Statistiques avant/après : lignes, nulls corrigés, taux de correction
+`POST /auto-clean/` puis `POST /execute/` — l'analyse, le choix d'une stratégie
+par problème, et un `.py` qui tourne sans cette application.
 
-### Modes d'utilisation
-
-**Manuel** — Upload → Analyse → Choisir une stratégie par problème → Générer le script → Exécuter & Télécharger
-
-**Autopilot** — Upload → Nettoyage automatique en un clic (détecte + choisit + génère en une seule requête)
-
-**URL** — Analyse depuis un lien direct CSV/Excel, une URL Google Sheets (conversion automatique export CSV), ou un S3 public
+> **Deux défauts corrigés le 15 octobre 2026**, et le second était fatal.
+> `/auto-clean/` renvoyait 500 sur tout fichier comportant un problème. Et le
+> script produit **jetait tout son nettoyage** : le gabarit ouvrait sur
+> `df_clean = df.copy()`, les soixante-dix extraits de stratégie écrivaient
+> sur `df`, et la fonction rendait `df_clean` — la copie prise *avant* la
+> première étape. Le script tournait, journalisait « RESULTAT », annonçait
+> « 8 → 8 lignes », et réécrivait les données d'origine sous le nom
+> `cleaned_*.csv`. Aucune erreur, aucun avertissement.
+>
+> Rien ne l'avait vu parce que le seul test de bout en bout écrivait son étape
+> à la main avec `df_clean` — le seul endroit du dépôt à employer ce nom. Son
+> erreur correspondait à celle du gabarit, les deux s'annulaient, et le test
+> restait vert au-dessus d'un produit qui ne nettoyait rien.
 
 ---
 
-## Lancement
+## Ce qui a été mesuré, et sur quoi
 
-### Prérequis
-- Python 3.12+
-- Node.js 18+
+### Le corpus de pathologies — `backend/tests/corpus.py`
 
-### Backend
-```bash
-cd backend
-python -m venv venv
-venv\Scripts\activate          # Windows
-# source venv/bin/activate     # macOS/Linux
+Vingt fichiers, **une pathologie chacun**, avec une attente et un enjeu
+déclarés. Les fichiers réels trouvent ce à quoi on n'avait pas pensé ; le
+corpus trouve ce à quoi on avait pensé, et dit **laquelle** a cassé.
 
-pip install -r requirements.txt
-uvicorn app.main:app --reload  # http://localhost:8000/docs
-```
+Ce qu'il a trouvé à sa première exécution :
 
-### Frontend
-```bash
-cd frontend
-npm install
-npm run dev    # http://localhost:3000
-npm run build
-npm run lint
-```
+- **Les zéros initiaux étaient mangés.** `01000` devenait `1000`, et aucun
+  contrôle de type ne pouvait le voir puisque la colonne tenait parfaitement
+  son type déclaré. La cause était au chargement : pandas convertit avant que
+  quoi que ce soit d'autre ne tourne. La passe lit désormais tout en texte et
+  décide des types elle-même.
+- **Un fichier sans ligne de données plantait en 500.** Il rend maintenant un
+  400 et dit qu'un fichier vide est normal avant un premier chargement et un
+  incident après — et que rien dans le fichier ne distingue les deux.
+- **Les négatifs comptables `(1200)` passaient inaperçus.** Retirer les
+  parenthèses transforme un débit en crédit.
 
-### Docker (stack complète)
-```bash
-docker-compose up --build
-```
+### Le corpus public — `corpus-public/`
 
-### Tests
-```bash
-cd backend
-python -m pytest tests/ -q     # conseiller LLM monkeypatché — aucun réseau, aucune clé requise
-```
-Couvre le conseiller agentique : mapping des choix, respect des bornes (index invalides ignorés) et **fail-open** (LLM absent / erreur / JSON illisible → repli rule-based).
+Cinq jeux réels, téléchargés et **non versionnés** (3,5 Mo, licences
+différentes ; les URL sont dans `corpus-public/README.md`, le re-téléchargement
+prend trente secondes). Les tests se sautent proprement si le dossier est vide.
 
-### Variables d'environnement
+- **`?` manquait à la liste des marqueurs de vide**, qui connaissait `???`.
+  UCI Adult l'emploie sur 5,6 % de trois colonnes : 1 700 vides qui seraient
+  passés pour des modalités.
+- **Titanic valide le refus d'écrêter.** La passe signale un tarif de 512 £ et
+  une fratrie de 8 comme hors de l'intervalle plausible. **Les deux sont
+  vrais** : la famille Cardeza avait les billets les plus chers du navire, et
+  les Sage voyageaient à onze. Un outil qui écrête par défaut détruirait les
+  lignes les plus intéressantes du jeu de données le plus enseigné du domaine,
+  en silence, en annonçant un succès.
 
-| Variable | Défaut | Description |
-|---|---|---|
-| `OPENAI_API_KEY` | — | Clé OpenAI — **active le conseiller LLM** (choix + justification des stratégies). Absente → repli 100 % rule-based |
-| `OPENAI_MODEL` | `gpt-4o-mini` | Modèle du conseiller LLM |
-| `CORS_ORIGINS` | `["http://localhost:3000","http://localhost:5173"]` | Origines autorisées |
-| `DEBUG` | `false` | Mode debug FastAPI |
-| `NEXT_PUBLIC_API_URL` | `http://localhost:8000` | URL du backend (frontend) |
+### Les valeurs aberrantes : mesurées toujours, déclarées sur demande, jamais écrêtées en silence
 
-Créez un fichier `backend/.env` pour surcharger les valeurs par défaut.
+Trois positions possibles, et le défaut est la seule qui ne fabrique rien.
+L'inférence **signale toujours** combien de valeurs sortent d'un intervalle
+robuste, avec des exemples. L'écrêtage et le vidage existent, sont explicites,
+et obéissent au budget d'imputation — parce que ramener trois cents revenus au
+plafond invente trois cents revenus identiques qui n'ont jamais existé.
 
----
+La raison n'est pas la timidité : une valeur extrême est tantôt une faute de
+frappe, tantôt la ligne la plus importante du fichier, et la colonne seule ne
+permet pas de les distinguer.
 
-## Architecture
+### Performance
 
-```
-POST /analyze/        → DataProfiler → profil complet + issues
-POST /analyze/url     → fetch HTTP → DataProfiler (même pipeline)
-POST /suggest/batch   → stratégies rule-based + conseiller LLM (choix + justification, fail-open)
-POST /generate/       → assemblage + validation AST → script .py
-POST /auto-clean/     → analyze + choix agentique par problème + generate en une passe
-POST /execute/        → subprocess.run du script + retour fichier nettoyé
-```
+**1,8 Mo/s pour la passe entière** — 500 000 lignes / 21 Mo en 11,4 s (médiane
+de cinq courses, écart-type 0,8 s), sensiblement linéaire.
 
-### Backend (`backend/app/`)
-
-- **`services/profiler.py`** — Moteur central. Charge, normalise les noms de colonnes (supprime les caractères spéciaux pouvant casser les string literals Python), infère les types sémantiques, détecte les problèmes. Expose `sample_rows` pour l'aperçu frontend.
-- **`services/advisor.py`** — Conseiller LLM (couche agentique). `advise()` raisonne sur le contexte du dataset et renvoie, par problème, l'index de la meilleure stratégie + une justification. Appel LLM isolé (`_call_llm`, monkeypatché dans les tests), fail-open (`{}` = repli rule-based).
-- **`routers/suggest.py`** — Stratégies rule-based contextuelles + arbitrage par le conseiller LLM. Chaque stratégie expose `code_preview` (le code exact qui sera injecté dans le script final).
-- **`routers/generate.py`** — Assemble le script complet, valide avec `ast.parse`, auto-corrige les méthodes dépréciées.
-- **`routers/auto_clean.py`** — Orchestrateur : appelle le profiler, choisit la première stratégie recommandée pour chaque issue, génère le script en une passe.
-- **`routers/execute.py`** — Exécute le script dans un thread pool (`run_in_executor`) pour compatibilité Windows/uvicorn (pas d'`asyncio.create_subprocess_exec`). Retourne le fichier nettoyé en base64 + statistiques.
-- **`routers/analyze.py`** — Upload et ingestion URL avec protection SSRF (schémas http/https uniquement, IPs privées bloquées).
-
-### Frontend (`frontend/`)
-
-Next.js 16 App Router + React 19 + Tailwind CSS.
-
-- **`app/page.tsx`** — Orchestre trois états : `idle` (upload) → `analysis` (pipeline manuel) ou `autopilot`. Health check backend au montage.
-- **`components/FileUpload.tsx`** — Drag-and-drop, sélection fichier, onglet URL avec validation client.
-- **`components/AnalysisResult.tsx`** — Appelle `/suggest/batch` au montage (auto-sélection recommandée), aperçu des données, bouton "Tout sélectionner", génération du script.
-- **`components/SuggestionModal.tsx`** — Sélecteur de stratégie avec pros/cons, code preview, fermeture Escape/backdrop.
-- **`components/CodeExport.tsx`** — Affiche le script, boutons Copier/Télécharger .py/Exécuter, panel de stats post-exécution.
-- **`lib/api.ts`** — Deux instances Axios (`api` JSON, `apiFormData` multipart) avec timeouts, intercepteur d'erreur centralisé, `checkBackendHealth()`.
+`/contract-clean/` plafonne les dépôts à **25 Mo** et non aux 100 Mo des autres
+routes : à 1,8 Mo/s, 100 Mo demandent près d'une minute, ce qu'aucune requête
+HTTP ordinaire ne survit. Aller plus haut exige un traitement en arrière-plan
+avec un identifiant de tâche, ce qui est un autre produit.
 
 ---
 
 ## Sécurité
 
-- **SSRF** : `/analyze/url` accepte uniquement `http://` et `https://`, les IPs privées (10.x, 192.168.x, 127.x, link-local) sont bloquées.
-- **Injection de code** : Les noms de colonnes sont sanitizés (apostrophes, guillemets, caractères spéciaux supprimés) avant toute génération de code.
-- **Taille** : Fichiers limités à 100 MB côté serveur.
-- **Timeout** : Exécution de script plafonnée à 30 secondes.
-- **CORS** : Origines configurables via variable d'environnement (non hardcodées).
+`POST /execute/` lance un script Python **venu du client** — c'est voulu,
+l'utilisateur peut relire et corriger ce qui a été produit. Deux barrières, et
+la première est celle qui protège :
 
-> L'exécution de scripts se fait avec les droits du processus serveur. En production, isoler dans un conteneur ou un sandbox.
+- **L'environnement du sous-processus est construit, pas hérité.** Avant ça,
+  le script tournait avec l'`OPENAI_API_KEY` du serveur et sa sortie revenait
+  à l'appelant : **trois lignes exfiltraient la clé.**
+- `check_script()` refuse ce qui sort de la forme que le générateur produit —
+  liste blanche d'imports, pas d'`eval`, pas de `__import__`. C'est de la
+  défense en profondeur, **pas un bac à sable** : du Python arbitraire reste du
+  Python arbitraire.
+
+---
+
+## Lancer
+
+```bash
+# Backend
+cd backend
+python -m venv venv && venv\Scripts\activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload          # http://localhost:8000/docs
+
+# Frontend
+cd frontend && npm install && npm run dev   # http://localhost:3000
+
+# Tests — 151, sans réseau et sans clé
+cd backend && python -m pytest tests/ -q
+```
+
+La boucle agentique et le conseiller LLM tournent **100 % hors ligne** : sans
+`OPENAI_API_KEY`, le conseiller se replie sur les règles et l'application reste
+entièrement fonctionnelle.
+
+| route | ce qu'elle rend |
+|---|---|
+| `POST /analyze/` · `/analyze/url` | profil et problèmes détectés |
+| `POST /suggest/batch` | stratégies par problème (+ choix justifié du LLM) |
+| `POST /generate/` | script `.py` autonome, validé par `ast` |
+| `POST /auto-clean/` | analyse + choix + script, en une passe |
+| `POST /execute/` | lance le script, rend le fichier nettoyé |
+| `POST /agent-clean/` | boucle : mesurer, nettoyer, re-profiler, itérer |
+| `GET /contract-clean/usages` | les quatre usages |
+| `POST /contract-clean/propose` | le contrat qu'il faudrait tenir — ne change rien |
+| `POST /contract-clean/` | répare, vérifie, livre données + Parquet + garanties |
+| `POST /prepare/` | la chaîne de préparation, ajustée après la séparation |
+
+---
+
+## Ce que l'outil ne fait pas
+
+- **Il ne fusionne pas plusieurs sources** et ne restructure pas (pivot,
+  dépliage). Les contrôles de clé et d'unicité du contrat sont la base
+  naturelle d'un futur « ces deux fichiers sont-ils joignables ».
+- **Il ne transforme pas le fichier pour l'apprentissage.** Il rend la chaîne,
+  et c'est la seule façon correcte de le faire.
+- **Il ne dérive pas les dates.** Année, mois, jour de semaine, ancienneté :
+  ces choix dépendent de ce que le modèle doit apprendre.
+- **Il n'écrête rien par défaut.** Voir plus haut.
+
+---
+
+## Licence
+
+MIT.
