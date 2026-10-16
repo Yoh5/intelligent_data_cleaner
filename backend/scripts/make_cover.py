@@ -24,6 +24,8 @@ Deux formats, parce que GitHub en veut deux :
 """
 from __future__ import annotations
 
+import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -110,7 +112,30 @@ def colonnes_reelles() -> list[tuple[str, bool, str]]:
     return sortie
 
 
-def composer(l: int, h: int, e: float) -> Image.Image:
+def nombre_de_tests() -> int:
+    """Le vrai nombre, demandé à pytest.
+
+    L'image affichait « 151 tests » alors qu'il y en avait 185. Le reste de ce
+    fichier dessine à partir de la logique réelle, précisément pour que
+    l'image ne mente pas quand le code change ; un nombre écrit à la main au
+    milieu de ça est le seul endroit par où le mensonge pouvait rentrer.
+    """
+    sortie = subprocess.run(
+        [sys.executable, "-m", "pytest", "--collect-only", "-q",
+         "-p", "no:cacheprovider"],
+        cwd=RACINE, capture_output=True, text=True, encoding="utf-8",
+        errors="replace",
+    ).stdout
+    trouve = re.search(r"(\d+)\s+tests? collected", sortie)
+    if not trouve:
+        raise SystemExit(
+            "impossible de compter les tests ; plutôt que d'afficher un "
+            f"nombre faux, on s'arrête.\n{sortie[-600:]}"
+        )
+    return int(trouve.group(1))
+
+
+def composer(l: int, h: int, e: float, tests: int) -> Image.Image:
     img = fond(l, h)
     d = ImageDraw.Draw(img)
     marge = int(l * 0.062)
@@ -152,17 +177,18 @@ def composer(l: int, h: int, e: float) -> Image.Image:
 
     d.text((marge, h - int(h * 0.105)),
            "Un contrat vérifié indépendamment du nettoyeur  ·  une chaîne "
-           "ajustée après la séparation  ·  151 tests",
+           f"ajustée après la séparation  ·  {tests} tests",
            font=f(SANS, int(26 * e)), fill=ENCRE_3)
     return img
 
 
 def main() -> int:
     SORTIE.mkdir(parents=True, exist_ok=True)
+    tests = nombre_de_tests()
     for nom, (l, h, e) in {"cover.png": (2400, 840, 1.0),
                            "social.png": (1280, 640, 0.62)}.items():
         chemin = SORTIE / nom
-        composer(l, h, e).save(chemin, optimize=True)
+        composer(l, h, e, tests).save(chemin, optimize=True)
         print(f"ecrit : {chemin.name}  {l}x{h}  "
               f"({chemin.stat().st_size / 1024:.0f} Ko)")
     return 0

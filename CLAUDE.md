@@ -30,7 +30,7 @@ OPENAI_API_KEY=<key> docker-compose up --build
 ```bash
 cd backend
 pip install pandas numpy openpyxl fastapi "pydantic>=2" pydantic-settings python-multipart httpx openai pytest
-pytest tests/ -q   # 173 tests : advisor, quality, agent_cleaner, contract, reparer, corpus, preparation, forme, bout-en-bout
+pytest tests/ -q   # 185 tests : advisor, quality, agent_cleaner, contract, reparer, corpus, preparation, forme, excel, bout-en-bout
 ```
 CI : `.github/workflows/tests.yml` (push/PR). La boucle agentique tourne 100 % offline (conseiller fail-open → rule-based).
 

@@ -8,6 +8,30 @@ from app.routers.generate import _build_complete_script, _validate_and_fix_code,
 
 router = APIRouter(prefix="/auto-clean", tags=["auto-clean"])
 
+#: Ce que pandas dit quand le contenu ne correspond pas à l'extension. On ne
+#: répète pas sa phrase telle quelle : elle parle de moteurs et de `BytesIO`,
+#: et elle peut contenir un morceau du fichier — donc des données.
+_FORMAT = ("format cannot be determined", "no engine", "corrupt",
+           "not a zip file", "unsupported format", "bad magic")
+
+
+def _illisible(nom: str, e: Exception) -> str:
+    """Pourquoi le fichier n'a pas pu s'ouvrir, et quoi faire — sans jamais
+    recopier son contenu dans le message."""
+    motif = str(e).lower()
+    if any(m in motif for m in _FORMAT):
+        return (f"« {nom} » porte une extension de classeur mais son contenu "
+                f"n'en est pas un : il est tronqué, ou c'est un export au "
+                f"format HTML ou CSV renommé. Réenregistrez-le depuis Excel "
+                f"en .xlsx, ou déposez-le en .csv sous son vrai nom.")
+    if "vide" in motif or "no columns" in motif or "empty" in motif:
+        return (f"« {nom} » ne contient aucune ligne de données — un en-tête "
+                f"seul, ou rien du tout.")
+    if "codec" in motif or "decode" in motif:
+        return (f"« {nom} » est dans un encodage qui n'a pas pu être deviné. "
+                f"Réenregistrez-le en UTF-8.")
+    return f"« {nom} » n'a pas pu être lu : {type(e).__name__}."
+
 
 @router.post("/")
 async def auto_clean(file: UploadFile = File(...)):
@@ -25,7 +49,17 @@ async def auto_clean(file: UploadFile = File(...)):
         raise HTTPException(status_code=413, detail="File too large (max 100MB)")
 
     profiler = DataProfiler()
-    analysis = await profiler.analyze_file(content, file.filename)
+    try:
+        analysis = await profiler.analyze_file(content, file.filename)
+    except HTTPException:
+        raise
+    except Exception as e:
+        # Un classeur tronqué, un .xls qui est en fait du HTML d'export, un
+        # CSV dans un encodage que pandas n'ouvre pas : l'extension est
+        # correcte et le contenu ne l'est pas. Sans ce filet, l'exception
+        # remontait en 500 avec une trace — l'utilisateur apprenait qu'il
+        # existe un fichier `_base.py` dans pandas, et rien d'autre.
+        raise HTTPException(status_code=400, detail=_illisible(file.filename, e))
 
     issues = analysis.get("issues", [])
     if not issues:

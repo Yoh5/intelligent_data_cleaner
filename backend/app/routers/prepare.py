@@ -17,6 +17,7 @@ from typing import Optional
 import pandas as pd
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
+from app.routers.auto_clean import _illisible
 from app.services import agent_contrat, contract, preparation
 
 router = APIRouter(prefix="/prepare", tags=["prepare"])
@@ -42,7 +43,14 @@ async def preparer(
             413, "fichier trop volumineux (25 Mo) : au-delà, la passe demande "
                  "un traitement en arrière-plan, qui est un autre produit")
 
-    passe = await agent_contrat.run(contenu, nom, usage=usage)
+    # Même filet que `/auto-clean/` : extension juste, contenu illisible.
+    # Laisser remonter l'exception rendait un 500 et une trace de pandas.
+    try:
+        passe = await agent_contrat.run(contenu, nom, usage=usage)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(400, _illisible(nom, e))
     ct = contract.Contrat.from_dict(passe["contrat"])
 
     # Le plan se décide sur les données telles qu'elles sont, pas sur la
