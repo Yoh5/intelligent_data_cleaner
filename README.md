@@ -479,8 +479,8 @@ retirer, et la vérification dit que la clé ne tient pas (bloquant).
 ## Ce que l'outil ne fait pas
 
 - **Il ne fusionne pas plusieurs sources** et ne restructure pas (pivot,
-  dépliage). Les contrôles de clé et d'unicité du contrat sont la base
-  naturelle d'un futur « ces deux fichiers sont-ils joignables ».
+  dépliage). Il dit seulement ce qu'une jointure *ferait* (`app.cli join`),
+  sans la faire.
 - **Il ne transforme pas le fichier pour l'apprentissage.** Il rend la chaîne,
   et c'est la seule façon correcte de le faire.
 - **Il ne dérive pas les dates.** Année, mois, jour de semaine, ancienneté :
@@ -491,4 +491,4 @@ retirer, et la vérification dit que la clé ne tient pas (bloquant).
 
 ## Licence
 
-MIT.
+MIT — voir [`LICENSE`](LICENSE).
