@@ -22,7 +22,10 @@ jobs:
         # lourd et non requis par le profiler/les services).
         run: |
           python -m pip install --upgrade pip
-          pip install pandas numpy openpyxl fastapi "pydantic>=2" pydantic-settings \
-                      python-multipart httpx openai pytest
+          # pyarrow : le livrable Parquet de la passe sous contrat.
+          # scikit-learn : sans lui, les 14 tests de la chaine de preparation
+          # (dont le test anti-fuite, qui EXECUTE le script) se sautent en silence.
+          pip install pandas numpy openpyxl pyarrow fastapi "pydantic>=2" pydantic-settings \
+                      python-multipart httpx openai pytest scikit-learn
       - name: Run tests
         run: pytest tests/ -q
