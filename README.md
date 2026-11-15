@@ -14,7 +14,7 @@ la liste de ce qu'elle n'a pas pu faire.
 ![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-green.svg)
 ![Next.js](https://img.shields.io/badge/Next.js-16+-black.svg)
-![tests](https://img.shields.io/badge/tests-192-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-201-brightgreen.svg)
 
 ---
 
@@ -246,6 +246,35 @@ reste disponible dans un second onglet.
 
 ---
 
+## En ligne de commande : la barrière dans une chaîne de chargement
+
+```bash
+cd backend
+python -m app.cli check clients.csv --usage base              # verdict lisible
+python -m app.cli check clients.csv --usage base --json       # verdict pour une machine
+python -m app.cli check clients.csv --sortie out/             # + données réparées, Parquet, contrat
+python -m app.cli check livraison.csv --contrat out/clients_contrat.json
+```
+
+Tout tient dans le **code de sortie**, parce que c'est lui qu'une chaîne lit :
+
+| code | sens |
+|---|---|
+| 0 | le contrat est tenu : le fichier peut entrer |
+| 1 | le contrat n'est pas tenu : il ne doit pas entrer tel quel |
+| 2 | indécidable : fichier absent ou illisible, usage inconnu, contrat invalide |
+
+1 et 2 sont distincts exprès : une panne qui sortirait 1 passerait pour un
+verdict. La dernière forme est l'usage le plus utile : le contrat écrit pour
+un premier fichier sert de barrière à **toutes les livraisons suivantes**.
+Rien n'est écrit sur le disque sans `--sortie`.
+
+Mesuré sur le corpus public, usage « charger en base » : Titanic, Air Travel et
+OWID passent (0) ; UCI Adult et US Cities sont refusés (1), aucun des deux
+n'ayant de colonne qui identifie une ligne.
+
+---
+
 ## Lancer
 
 ```bash
@@ -258,7 +287,7 @@ uvicorn app.main:app --reload          # http://localhost:8000/docs
 # Frontend
 cd frontend && npm install && npm run dev   # http://localhost:3000
 
-# Tests — 192 (dont 1 sauté), sans réseau et sans clé
+# Tests — 201 (dont 1 sauté), sans réseau et sans clé
 cd backend && python -m pytest tests/ -q
 ```
 

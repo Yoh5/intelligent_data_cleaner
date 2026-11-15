@@ -30,7 +30,7 @@ OPENAI_API_KEY=<key> docker-compose up --build
 ```bash
 cd backend
 pip install pandas numpy openpyxl fastapi "pydantic>=2" pydantic-settings python-multipart httpx openai pytest
-pytest tests/ -q   # 192 tests (1 skipped) : advisor, quality, agent_cleaner, contract, reparer, corpus, preparation, forme, excel, bout-en-bout
+pytest tests/ -q   # 201 tests (1 skipped) : advisor, quality, agent_cleaner, contract, reparer, corpus, preparation, forme, excel, bout-en-bout
 ```
 CI : `.github/workflows/tests.yml` (push/PR). La boucle agentique tourne 100 % offline (conseiller fail-open → rule-based).
 
@@ -134,6 +134,18 @@ covered by tests:
 The downloadable contract script **imports** `app.services` on purpose (a copy
 would drift); its header says how to run it (`PYTHONPATH=backend`), and
 `test_le_script_genere_rejoue_la_passe` executes it for real.
+
+### The gate as a command — `app/cli.py`
+
+`python -m app.cli check FILE [--usage base|jointure|modele|tableau] [--contrat X.json] [--json] [--sortie DIR]`,
+run from `backend/`. It wraps `agent_contrat.run` and adds nothing to the logic.
+**The exit code is the product**: 0 held, 1 not held, 2 undecidable (missing or
+unreadable file, unknown usage, invalid contract). Never let a failure exit 1 — it
+would read as a verdict. Nothing is written without `--sortie`; `--json` prints the
+verdict only (no data, no script). `tests/test_cli.py` runs real subprocesses, because
+a test calling `main()` sees neither the real exit code nor the console encoding.
+A fixture trap worth remembering: a "no key" file made of 7 repeated rows gains a
+unique column once duplicates are dropped, so it tested nothing.
 
 ### Shape: what a value must look like — `contract.FORMES`
 
