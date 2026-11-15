@@ -30,7 +30,7 @@ OPENAI_API_KEY=<key> docker-compose up --build
 ```bash
 cd backend
 pip install pandas numpy openpyxl fastapi "pydantic>=2" pydantic-settings python-multipart httpx openai pytest
-pytest tests/ -q   # 201 tests (1 skipped) : advisor, quality, agent_cleaner, contract, reparer, corpus, preparation, forme, excel, bout-en-bout
+pytest tests/ -q   # 214 tests (1 skipped) : advisor, quality, agent_cleaner, contract, reparer, corpus, preparation, forme, excel, bout-en-bout
 ```
 CI : `.github/workflows/tests.yml` (push/PR). La boucle agentique tourne 100 % offline (conseiller fail-open → rule-based).
 
@@ -146,6 +146,17 @@ verdict only (no data, no script). `tests/test_cli.py` runs real subprocesses, b
 a test calling `main()` sees neither the real exit code nor the console encoding.
 A fixture trap worth remembering: a "no key" file made of 7 repeated rows gains a
 unique column once duplicates are dropped, so it tested nothing.
+
+### Joinability — `services/jointure.py`, `python -m app.cli join A B --sur col[=col]`
+
+Diagnoses what a join WOULD do without doing it: real cardinality (n:m is the only
+blocking one — it multiplies rows), coverage of the left side (default minimum 1.0,
+`--couverture-min` lowers it), inner-join row count, and **near-matches**: orphan keys
+that would match after strip / casefold / leading-zero removal. It never repairs them:
+whether `00042` and `42` are the same key is a decision. Both files must be read **as
+text** (`DataProfiler._load_file(..., True)`), otherwise `01000` and `1000` are already
+equal and nothing can be seen. `lignes_resultat` was cross-checked against a real
+`pd.merge` on five real cases; keep that property if the counting changes.
 
 ### Shape: what a value must look like — `contract.FORMES`
 

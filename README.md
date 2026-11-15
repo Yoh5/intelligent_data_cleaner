@@ -14,7 +14,7 @@ la liste de ce qu'elle n'a pas pu faire.
 ![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-green.svg)
 ![Next.js](https://img.shields.io/badge/Next.js-16+-black.svg)
-![tests](https://img.shields.io/badge/tests-201-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-214-brightgreen.svg)
 
 ---
 
@@ -273,6 +273,31 @@ Mesuré sur le corpus public, usage « charger en base » : Titanic, Air Travel 
 OWID passent (0) ; UCI Adult et US Cities sont refusés (1), aucun des deux
 n'ayant de colonne qui identifie une ligne.
 
+### Avant une jointure : ces deux fichiers sont-ils joignables ?
+
+```bash
+python -m app.cli join ventes.csv clients.csv --sur id_client
+python -m app.cli join ventes.csv clients.csv --sur "Id Client=code"     # noms différents
+python -m app.cli join a.csv b.csv --sur pays --sur code                  # clé composite
+python -m app.cli join a.csv b.csv --sur id --couverture-min 0.95 --json
+```
+
+Une jointure ne plante jamais : elle rend **moins** de lignes (clés orphelines)
+ou **plus** (clé répétée des deux côtés), sans rien dire. La commande mesure ce
+que la jointure ferait, sans la faire : cardinalité réelle, couverture, nombre
+de lignes du résultat. Mêmes codes de sortie : 0 joignable, 1 non, 2 indécidable.
+
+Elle nomme surtout les **presque-correspondances**, le cas qui coûte des
+heures : des clés qui se ressemblent sans s'égaler (espace, casse, zéro initial
+mangé par un tableur). Elle ne les répare pas — décider que `00042` et `42`
+sont le même client est une décision, pas un nettoyage.
+
+Mesuré sur deux jeux réels : joindre Titanic à UCI Adult sur `sex` donne
+**0 ligne**, parce que l'un écrit `male` et l'autre `Male`. La commande le dit
+avant : 891 orphelines, 891 rattrapables, `'male' / 'Male'`. Et joindre Titanic
+à lui-même sur `pclass` rendrait 321 593 lignes pour 891. Le nombre de lignes
+annoncé est vérifié contre une vraie jointure pandas.
+
 ---
 
 ## Lancer
@@ -287,7 +312,7 @@ uvicorn app.main:app --reload          # http://localhost:8000/docs
 # Frontend
 cd frontend && npm install && npm run dev   # http://localhost:3000
 
-# Tests — 201 (dont 1 sauté), sans réseau et sans clé
+# Tests — 214 (dont 1 sauté), sans réseau et sans clé
 cd backend && python -m pytest tests/ -q
 ```
 
