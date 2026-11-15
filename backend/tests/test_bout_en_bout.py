@@ -200,3 +200,35 @@ def test_un_jeu_reel_survit_au_parcours_complet(client, chemin):
     assert apres > 0, f"{chemin.name} : le nettoyage a vidé le fichier"
     assert apres >= avant * 0.5, (
         f"{chemin.name} : {avant} -> {apres} lignes, plus de la moitié perdue")
+
+
+# --------------------------------------------------------------------------- #
+# /suggest/batch — la route que l'onglet « colonne par colonne » appelle au
+# chargement. Aucun test ne l'exerçait, et l'interface lui envoyait
+# `sample_data: []` là où le modèle attend un dictionnaire : 422 à chaque
+# analyse, donc aucune stratégie proposée (trouvé le 15/11/2026 en rejouant
+# l'onglet dans le navigateur).
+# --------------------------------------------------------------------------- #
+def _demande_suggestions(**extra):
+    corps = {
+        "dataset_name": "v.csv",
+        "column_types": {"montant": "numeric"},
+        "issues": [{"column": "montant", "issue": "missing_values", "type": "missing",
+                    "severity": "critical", "count": 130, "rate": 0.65,
+                    "description": "130 valeurs manquantes", "affected_rows": 130,
+                    "semantic_type": "numeric"}],
+    }
+    corps.update(extra)
+    return TestClient(app).post("/suggest/batch", json=corps)
+
+
+def test_suggestions_avec_un_echantillon_par_colonne():
+    r = _demande_suggestions(sample_data={"montant": [10.5, None, 3]})
+    assert r.status_code == 200, r.text
+    assert r.json()["results"][0]["strategies"]
+
+
+def test_suggestions_tolere_lancien_client_qui_envoie_une_liste():
+    r = _demande_suggestions(sample_data=[])
+    assert r.status_code == 200, r.text
+    assert r.json()["results"][0]["strategies"]

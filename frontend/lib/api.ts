@@ -102,7 +102,8 @@ export interface BatchSuggestionRequest {
   dataset_name: string;
   column_types: Record<string, string>;
   issues: IssueDetected[];
-  sample_data: Record<string, any>[];
+  /** Quelques valeurs par colonne, pour que le conseiller voie les données. */
+  sample_data?: Record<string, any[]>;
 }
 
 export interface BatchStrategyItem {

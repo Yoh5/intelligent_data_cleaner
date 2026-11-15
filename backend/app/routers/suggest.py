@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from typing import List, Dict, Any, Optional
 import logging
 
@@ -23,6 +23,14 @@ class SuggestionRequest(BaseModel):
     column_types: Dict[str, str]
     issues: List[IssueInput]
     sample_data: Optional[Dict[str, List[Any]]] = None
+
+    @field_validator("sample_data", mode="before")
+    @classmethod
+    def _echantillon_ou_rien(cls, v):
+        # L'échantillon n'est qu'une aide pour le conseiller. Une forme
+        # inattendue (l'interface a longtemps envoyé une liste vide) ne doit
+        # pas faire échouer toute la demande en 422 : on s'en passe.
+        return v if isinstance(v, dict) else None
 
 
 @router.post("/batch")

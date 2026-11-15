@@ -78,7 +78,9 @@ export const AnalysisResult: React.FC<AnalysisResultProps> = ({
           dataset_name: analysis.dataset_info?.filename || "dataset",
           column_types: colTypes,
           issues: analysis.issues as any,
-          sample_data: [],
+          sample_data: Object.fromEntries(
+            Object.entries(analysis.columns).map(([k, v]) => [k, v.sample_values || []])
+          ),
         });
         setSuggestionResults(result.results);
         // Auto-select recommended strategy per issue
