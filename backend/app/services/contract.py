@@ -464,10 +464,36 @@ def lire_dates(s: pd.Series, format_date: Optional[str] = None) -> pd.Series:
             # contradictoire (les deux) ou indécidable (aucun) : on s'abstient
             porte = porte & ~est_chiffree
         jour_dabord = j
+    # Chaque format est lu À PART. Laissé à lui-même, `to_datetime` déduit le
+    # format de la première valeur et met à vide celles qui n'y correspondent
+    # pas : une colonne à 95 % ISO et 5 % `jj/mm/aaaa` perdait ses 5 %, et
+    # finissait déclarée texte (trouvé par le banc de mesure, 16/11/2026).
     import warnings
+    iso = plein.str.match(r"^\s*\d{4}-\d{1,2}-\d{1,2}")
+    chiffree_lisible = est_chiffree & porte & ~iso
+    reste = porte & ~iso & ~chiffree_lisible
+    conv = pd.Series(pd.NaT, index=s.index, dtype="datetime64[ns]")
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        conv = pd.to_datetime(texte, errors="coerce", dayfirst=jour_dabord)
+        if iso.any():
+            conv[iso] = pd.to_datetime(texte[iso].str.strip(), errors="coerce", format="ISO8601")
+        if chiffree_lisible.any():
+            a = chiffree[0][chiffree_lisible].astype(int)
+            b = chiffree[1][chiffree_lisible].astype(int)
+            an = chiffree[2][chiffree_lisible]
+            longue = an.str.len() == 4
+            jour, mois = (a, b) if jour_dabord else (b, a)
+            composees = pd.to_datetime(
+                pd.DataFrame({"year": an.where(longue, "0").astype(int), "month": mois, "day": jour}),
+                errors="coerce")
+            conv[chiffree_lisible] = composees.where(longue)
+            # Une année sur deux chiffres : on laisse l'analyseur trancher, comme avant.
+            courte = chiffree_lisible.copy()
+            courte[chiffree_lisible] = ~longue
+            if courte.any():
+                conv[courte] = pd.to_datetime(texte[courte], errors="coerce", dayfirst=jour_dabord)
+        if reste.any():
+            conv[reste] = pd.to_datetime(texte[reste], errors="coerce", dayfirst=jour_dabord)
     return conv.where(porte)
 
 

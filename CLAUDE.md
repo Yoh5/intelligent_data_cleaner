@@ -266,6 +266,26 @@ key, score 85. Beyond `lignes_perdues_max` it now refuses (journal `refus`), rem
 nothing, and `verify` raises the blocking `cle_non_unique`. Within budget the old
 behaviour stands (first row kept, said to be arbitrary).
 
+### The benchmark — `backend/bench/`, `python -m bench.run`, `tests/test_banc.py`
+
+Answers what the verifier cannot: **is the output actually ready to use, and is the
+tool's own verdict right?** Tables whose every cell is known (`bench/donnees.py`:
+synthetic + Titanic complete rows), named defects injected and located
+(`bench/defauts.py`), every delivered cell compared to the truth (`bench/mesure.py`,
+CSV re-read with `csv`, never pandas). Four cleaners: contract pass (base / modele),
+the old `/agent-clean` loop, a ten-minute pandas notebook. Results and limits in
+`backend/bench/README.md`. No LLM is called (the old loop's advisor is cut).
+
+It found two defects in the contract pass on its first run, both fixed:
+- **mixed date formats were abandoned** — pandas infers the format from the first
+  value and voids the rest; `lire_dates` now parses ISO, `dd/mm/yyyy` and the rest
+  separately;
+- **imputation under 5 % was silent** — `SEUIL_INDICATRICE` is now 0: an indicator
+  column as soon as one value is filled.
+
+**I wrote both the tool and the bench.** 100 % means "none of the defects I thought
+of survives", not "it cleans everything". Extend the defect catalogue before quoting it.
+
 ### Shape: what a value must look like — `contract.FORMES`
 
 A type says what a value **is**; it never says that `999.1.2.3` is not an

@@ -89,8 +89,19 @@ def test_limputation_dans_le_budget_est_faite_avec_indicatrice():
     assert out["x_impute"].sum() == 2
 
 
-def test_pas_dindicatrice_sous_le_seuil():
+def test_une_seule_valeur_inventee_reste_reperable():
+    # Ce test disait l'inverse jusqu'au 16/11/2026 (« pas d'indicatrice sous le
+    # seuil de 5 % »). Le banc de mesure a montré ce que ça coûtait : 35 âges
+    # comblés sans trace sur Titanic, contrat déclaré tenu.
     df = pd.DataFrame({"x": [1.0] * 99 + [None]})
+    ct = C.Contrat(colonnes=[C.ContratColonne("x", "number")],
+                   imputation_max=0.20, sans_doublons=False)
+    out, _ = R.appliquer(df, ct)
+    assert "x_impute" in out.columns and out["x_impute"].sum() == 1
+
+
+def test_sans_imputation_pas_dindicatrice():
+    df = pd.DataFrame({"x": [1.0] * 100})
     ct = C.Contrat(colonnes=[C.ContratColonne("x", "number")],
                    imputation_max=0.20, sans_doublons=False)
     out, _ = R.appliquer(df, ct)

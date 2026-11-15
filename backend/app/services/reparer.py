@@ -47,10 +47,15 @@ import pandas as pd
 from app.services.contract import (FORMES, MARQUEURS_VIDES, Contrat, casse_porteuse,
                                    ContratColonne, convertir, marqueurs_de)
 
-#: Au-delà de cette part imputée, on ajoute une colonne indicatrice. Imputer
+#: Dès qu'une valeur est imputée, on ajoute une colonne indicatrice. Imputer
 #: sans trace rend une valeur inventée indiscernable d'une valeur observée ;
 #: l'indicatrice est la pratique standard et elle coûte une colonne.
-SEUIL_INDICATRICE = 0.05
+#:
+#: Le seuil valait 5 % jusqu'au 16/11/2026. Le banc de mesure l'a fait tomber :
+#: sur Titanic, 35 âges sur 714 (4,9 %) étaient comblés SANS trace, et le
+#: contrat se déclarait tenu. Une colonne de plus coûte moins qu'une valeur
+#: inventée qu'on ne peut plus distinguer d'une vraie.
+SEUIL_INDICATRICE = 0.0
 
 
 @dataclass
@@ -393,7 +398,7 @@ def imputer_sous_budget(df: pd.DataFrame, contrat: Contrat,
             j.refuse("imputation", cc.nom,
                      "colonne entièrement vide : rien à partir de quoi imputer")
             continue
-        if part >= SEUIL_INDICATRICE:
+        if part > SEUIL_INDICATRICE:
             df[f"{cc.nom}_impute"] = df[cc.nom].isna()
             j.fait("indicatrice", f"{cc.nom}_impute",
                    f"colonne ajoutée : {part:.1%} de « {cc.nom} » est imputé, la "

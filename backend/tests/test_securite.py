@@ -120,6 +120,20 @@ def test_les_dates_jour_dabord_sont_lues_jour_dabord():
     assert list(conv) == [pd.Timestamp("2024-03-01"), pd.Timestamp("2024-03-15")]
 
 
+def test_une_colonne_qui_melange_iso_et_jour_dabord_est_lue_en_entier():
+    # Trouvé par le banc de mesure (16/11/2026) : pandas déduit le format de
+    # la PREMIÈRE valeur et met à vide celles qui n'y correspondent pas. Une
+    # colonne à 95 % ISO et 5 % `jj/mm/aaaa` sortait alors en texte, contrat
+    # « tenu 100/100 », avec des dates illisibles pour une base.
+    conv = C.lire_dates(pd.Series(["2026-03-15", "17/09/2026", "02/06/2025", "2025-01-02", None]))
+    assert list(conv[:4]) == [pd.Timestamp("2026-03-15"), pd.Timestamp("2026-09-17"),
+                              pd.Timestamp("2025-06-02"), pd.Timestamp("2025-01-02")]
+    assert pd.isna(conv[4])
+    # Sans preuve de l'ordre (aucun nombre > 12), la partie chiffrée reste non lue.
+    conv = C.lire_dates(pd.Series(["2026-03-15", "02/06/2025"]))
+    assert conv[0] == pd.Timestamp("2026-03-15") and pd.isna(conv[1])
+
+
 def test_une_colonne_de_dates_ambigues_nest_pas_convertie():
     # Rien dans la colonne ne dit si c'est jour/mois ou mois/jour : choisir
     # serait lire de travers la moitié des fichiers. On garde le texte.
