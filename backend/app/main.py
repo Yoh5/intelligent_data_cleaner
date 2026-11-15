@@ -5,7 +5,7 @@ from fastapi.responses import JSONResponse
 
 from app.config import settings
 from app.routers import (analyze, suggest, generate, auto_clean, execute,
-                         agent_clean, contract_clean, prepare)
+                         agent_clean, contract_clean, prepare, join)
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -57,6 +57,7 @@ app.include_router(execute.router)
 app.include_router(agent_clean.router)
 app.include_router(contract_clean.router)
 app.include_router(prepare.router)
+app.include_router(join.router)
 
 @app.get("/")
 async def root():

@@ -30,7 +30,7 @@ OPENAI_API_KEY=<key> docker-compose up --build
 ```bash
 cd backend
 pip install pandas numpy openpyxl fastapi "pydantic>=2" pydantic-settings python-multipart httpx openai pytest
-pytest tests/ -q   # 214 tests (1 skipped) : advisor, quality, agent_cleaner, contract, reparer, corpus, preparation, forme, excel, bout-en-bout
+pytest tests/ -q   # 219 tests (1 skipped) : advisor, quality, agent_cleaner, contract, reparer, corpus, preparation, forme, excel, bout-en-bout
 ```
 CI : `.github/workflows/tests.yml` (push/PR). La boucle agentique tourne 100 % offline (conseiller fail-open → rule-based).
 
@@ -363,7 +363,7 @@ to report.
 
 ### Frontend (`frontend/`)
 
-Next.js App Router with TypeScript and Tailwind CSS. Single page at `app/page.tsx`, two tabs.
+Next.js App Router with TypeScript and Tailwind CSS. Single page at `app/page.tsx`, three tabs.
 
 **Default tab — contract gate (`components/Gate.tsx`)**, redesigned 15/11/2026 around
 the question "can this file enter the database, and what was refused?": file →
@@ -376,7 +376,14 @@ Sans + Mono, registry navy `--stamp`, and three state colours reserved for state
 so it is never red). Every state also carries an icon and a word. Icons and the hero
 diagram are inline SVG in `components/Illustrations.tsx` (currentColor, no emoji).
 
-**Second tab — column-by-column cleaning** (the original flow below):
+**Second tab — joinability (`components/Jointure.tsx`)**: two drops, key pairs picked
+from `POST /join/colonnes` (sanitised names), then `POST /join/` (`routers/join.py`, a
+thin wrapper over `services/jointure.py`, shared with the CLI). Keys are rendered with
+`white-space: pre` on a tinted chip so an edge space is visible. The verdict wording
+depends on orphans, not only on `joignable`: with a lowered threshold a join can pass
+while still dropping rows, and saying "no row lost" there was a bug caught in the browser.
+
+**Third tab — column-by-column cleaning** (the original flow below):
 
 **Component flow:**
 1. `FileUpload` — drag-and-drop or click to upload; calls `POST /analyze/`

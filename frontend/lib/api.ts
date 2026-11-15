@@ -305,3 +305,40 @@ export const telecharger = (contenu: string, nom: string, type: string, base64 =
   a.click();
   URL.revokeObjectURL(url);
 };
+
+// ── Diagnostic de jointure ─────────────────────────────────────────────
+// Ce que la jointure ferait, sans la faire.
+
+export interface DiagnosticJointure {
+  joignable: boolean;
+  cle_gauche: string[];
+  cle_droite: string[];
+  lignes_gauche: number;
+  lignes_droite: number;
+  cardinalite: '1:1' | 'n:1' | '1:n' | 'n:m';
+  couverture: number;
+  couverture_min: number;
+  orphelines: number;
+  exemples_orphelines: string[];
+  presque: number;
+  exemples_presque: [string, string][];
+  cles_vides_gauche: number;
+  cles_vides_droite: number;
+  cles_droite_inutilisees: number;
+  lignes_resultat: number;
+  problemes: { code: string; message: string }[];
+}
+
+export const colonnesDuFichier = async (file: File): Promise<{ colonnes: string[]; lignes: number }> =>
+  (await apiFormData.post('/join/colonnes', formulaire(file, {}))).data;
+
+export const diagnostiquerJointure = async (
+  gauche: File, droite: File, paires: [string, string][], couvertureMin: number,
+): Promise<DiagnosticJointure> => {
+  const fd = new FormData();
+  fd.append('gauche', gauche);
+  fd.append('droite', droite);
+  fd.append('sur', paires.map(([a, b]) => `${a}=${b}`).join(','));
+  fd.append('couverture_min', String(couvertureMin));
+  return (await apiFormData.post('/join/', fd)).data;
+};

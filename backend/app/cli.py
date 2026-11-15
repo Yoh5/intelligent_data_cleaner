@@ -33,7 +33,6 @@ from typing import Any, Dict, List, Optional
 import pandas as pd
 
 from app.services import agent_contrat, contract, contract_infer, jointure
-from app.services.profiler import DataProfiler
 
 TENU, NON_TENU, INDECIDABLE = 0, 1, 2
 EXTENSIONS = {".csv", ".xlsx", ".xls"}
@@ -138,33 +137,15 @@ def _ecrire(res: Dict[str, Any], fichier: str, dossier: str) -> List[Path]:
 
 
 def _lire_en_texte(fichier: str) -> pd.DataFrame:
-    """Le fichier lu en chaînes, par le même chargeur que la passe sous
-    contrat (encodage, séparateur, noms de colonnes) : « 01000 » reste « 01000 »."""
     p = Path(fichier)
     if not p.is_file():
         raise Indecidable(f"fichier introuvable : {p}")
     if p.suffix.lower() not in EXTENSIONS:
         raise Indecidable(f"format non pris en charge : {p.suffix or '(aucun)'}")
     try:
-        df = asyncio.run(DataProfiler()._load_file(p.read_bytes(), p.name, True))
+        return asyncio.run(jointure.lire_en_texte(p.read_bytes(), p.name))
     except Exception as e:
         raise Indecidable(f"{p.name} : lecture impossible ({e})")
-    if df is None or df.empty:
-        raise Indecidable(f"{p.name} : aucune ligne de données")
-    return df
-
-
-def _cles(sur: List[str]) -> tuple[List[str], List[str]]:
-    """`--sur a` ou `--sur a=b`, répétable ; les noms passent par la même
-    normalisation que les en-têtes, pour qu'on puisse écrire « Id Client »."""
-    def propre(nom: str) -> str:
-        return str(DataProfiler._sanitize_columns(pd.Index([nom]))[0])
-    g, d = [], []
-    for item in sur:
-        a, _, b = item.partition("=")
-        g.append(propre(a))
-        d.append(propre(b or a))
-    return g, d
 
 
 def _texte_jointure(dg: jointure.Diagnostic, gauche: str, droite: str) -> str:
@@ -191,7 +172,7 @@ def _texte_jointure(dg: jointure.Diagnostic, gauche: str, droite: str) -> str:
 def _commande_join(args) -> int:
     try:
         g, d = _lire_en_texte(args.gauche), _lire_en_texte(args.droite)
-        cg, cd = _cles(args.sur)
+        cg, cd = jointure.lire_la_cle(args.sur)
         dg = jointure.diagnostiquer(g, d, cg, cd, couverture_min=args.couverture_min)
     except (Indecidable, jointure.CleInconnue) as e:
         print(f"indécidable : {e}", file=sys.stderr)

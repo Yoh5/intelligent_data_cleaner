@@ -62,7 +62,7 @@ const estInformation = (a: string) => /^(clé primaire proposée|budgets pour)/.
 
 /* ── Étape 1 : le fichier ─────────────────────────────────────────── */
 
-function Depot({ fichier, onFichier, onErreur }: {
+export function Depot({ fichier, onFichier, onErreur }: {
   fichier: File | null; onFichier: (f: File | null) => void; onErreur: (m: string) => void;
 }) {
   const [survol, setSurvol] = useState(false);
@@ -83,7 +83,7 @@ function Depot({ fichier, onFichier, onErreur }: {
           <IconFile size={22} />
           <span>
             <span className="col-ref">{fichier.name}</span>
-            <span className="meta block">{(fichier.size / 1024).toFixed(0)} Ko</span>
+            <span className="meta block">{fichier.size < 1024 ? `${fichier.size} octets` : `${(fichier.size / 1024).toFixed(0)} Ko`}</span>
           </span>
         </span>
         <button className="btn btn--quiet" onClick={() => onFichier(null)}>changer de fichier</button>

@@ -14,7 +14,7 @@ la liste de ce qu'elle n'a pas pu faire.
 ![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-green.svg)
 ![Next.js](https://img.shields.io/badge/Next.js-16+-black.svg)
-![tests](https://img.shields.io/badge/tests-214-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-219-brightgreen.svg)
 
 ---
 
@@ -241,8 +241,15 @@ une décision.
 
 ![Le rapport : garanti, non garanti, refusé exprès](docs/interface-rapport.png)
 
+Un deuxième onglet répond à la question d'avant jointure : **ces deux fichiers
+sont-ils joignables ?** On dépose les deux, on désigne la clé, et on lit ce que
+la jointure ferait — couverture, lignes sans correspondance, clés qui se
+ressemblent sans s'égaler — sans qu'elle soit faite ni que rien soit corrigé.
+
+![Jointure : ce qu'elle ferait, avant de la faire](docs/interface-jointure.png)
+
 Le nettoyage colonne par colonne, avec choix de stratégie et script rejouable,
-reste disponible dans un second onglet.
+reste disponible dans un troisième onglet.
 
 ---
 
@@ -312,7 +319,7 @@ uvicorn app.main:app --reload          # http://localhost:8000/docs
 # Frontend
 cd frontend && npm install && npm run dev   # http://localhost:3000
 
-# Tests — 214 (dont 1 sauté), sans réseau et sans clé
+# Tests — 219 (dont 1 sauté), sans réseau et sans clé
 cd backend && python -m pytest tests/ -q
 ```
 
@@ -332,6 +339,7 @@ entièrement fonctionnelle.
 | `POST /contract-clean/propose` | le contrat qu'il faudrait tenir — ne change rien |
 | `POST /contract-clean/` | répare, vérifie, livre données + Parquet + garanties |
 | `POST /prepare/` | la chaîne de préparation, ajustée après la séparation |
+| `POST /join/colonnes` · `POST /join/` | les colonnes d'un fichier ; le diagnostic de jointure de deux fichiers |
 
 ---
 

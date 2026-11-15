@@ -150,3 +150,57 @@ def test_le_nombre_de_lignes_annonce_est_celui_dune_vraie_jointure():
     diag = J.diagnostiquer(g, d, ["k"], ["k"])
     assert diag.lignes_resultat == len(g.merge(d, on="k", how="inner"))
     assert diag.orphelines == int((g["k"] == "A").sum())
+
+
+# --------------------------------------------------------------------------- #
+# L'API, celle que l'interface appelle
+# --------------------------------------------------------------------------- #
+from fastapi.testclient import TestClient      # noqa: E402
+from app.main import app                       # noqa: E402
+
+api = TestClient(app)
+
+
+def _csv(df) -> bytes:
+    return df.to_csv(index=False).encode()
+
+
+def _poste_join(g, d, **champs):
+    return api.post("/join/", files={"gauche": ("g.csv", _csv(g), "text/csv"),
+                                     "droite": ("d.csv", _csv(d), "text/csv")}, data=champs)
+
+
+def test_api_colonnes_rend_les_noms_tels_que_la_cle_les_attend():
+    r = api.post("/join/colonnes", files={"file": ("g.csv", _csv(
+        pd.DataFrame({"Id Client": ["C1"], "Montant TTC": ["3"]})), "text/csv")})
+    assert r.status_code == 200
+    assert r.json() == {"colonnes": ["id_client", "montant_ttc"], "lignes": 1}
+
+
+def test_api_join_rend_le_diagnostic():
+    r = _poste_join(ventes(["C1 ", "C2"]), clients(["C1", "C2"]), sur="client")
+    assert r.status_code == 200
+    d = r.json()
+    assert d["joignable"] is False and d["presque"] == 1
+    assert d["exemples_presque"] == [["C1 ", "C1"]]
+
+
+def test_api_join_cle_composite_et_noms_differents():
+    g = pd.DataFrame({"pays": ["MA", "FR"], "num": ["1", "1"]})
+    d = pd.DataFrame({"pays": ["MA", "FR"], "code": ["1", "1"], "nom": ["a", "b"]})
+    r = _poste_join(g, d, sur="pays,num=code")
+    assert r.status_code == 200 and r.json()["joignable"] is True
+    assert r.json()["cle_droite"] == ["pays", "code"]
+
+
+def test_api_join_colonne_absente_est_un_400_qui_dit_quoi_choisir():
+    r = _poste_join(ventes(["C1"]), clients(["C1"]), sur="id_client")
+    assert r.status_code == 400
+    assert "id_client" in r.json()["detail"] and "montant" in r.json()["detail"]
+
+
+def test_api_join_refuse_un_seuil_absurde_et_un_format_inconnu():
+    assert _poste_join(ventes(["C1"]), clients(["C1"]), sur="client",
+                       couverture_min="1.5").status_code == 400
+    r = api.post("/join/colonnes", files={"file": ("g.txt", b"a,b\n1,2\n", "text/plain")})
+    assert r.status_code == 400

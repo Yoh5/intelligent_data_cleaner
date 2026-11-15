@@ -6,6 +6,7 @@ import { AnalysisResult } from '@/components/AnalysisResult';
 import { CodeExport } from '@/components/CodeExport';
 import { checkBackendHealth } from '@/lib/api';
 import { Gate } from '@/components/Gate';
+import { Jointure } from '@/components/Jointure';
 import { HeroArt, IconDatabase } from '@/components/Illustrations';
 
 type AppState = 'idle' | 'analysis' | 'autopilot';
@@ -26,7 +27,8 @@ export default function Home() {
   const [originalFile, setOriginalFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [backendOffline, setBackendOffline] = useState(false);
-  const [detaille, setDetaille] = useState(false);
+  const [onglet, setOnglet] = useState<'contrat' | 'jointure' | 'colonnes'>('contrat');
+  const detaille = onglet === 'colonnes';
 
   // Health check on mount
   useEffect(() => {
@@ -97,16 +99,25 @@ export default function Home() {
         </section>
 
         <div className="flex items-center gap-4 flex-wrap" style={{ marginBottom: '1.5rem' }}>
-          <button className={`btn ${!detaille ? 'btn--primary' : ''}`} onClick={() => setDetaille(false)} aria-pressed={!detaille}>
-            Contrôle sous contrat
-          </button>
-          <button className={`btn ${detaille ? 'btn--primary' : ''}`} onClick={() => setDetaille(true)} aria-pressed={detaille}>
-            Nettoyage colonne par colonne
-          </button>
-          <span className="meta">{detaille ? 'vous choisissez chaque stratégie, et repartez avec le script' : 'recommandé : le rapport vérifié indépendamment'}</span>
+          {([
+            ['contrat', 'Contrôle sous contrat'],
+            ['jointure', 'Jointure de deux fichiers'],
+            ['colonnes', 'Nettoyage colonne par colonne'],
+          ] as const).map(([cle, nom]) => (
+            <button key={cle} className={`btn ${onglet === cle ? 'btn--primary' : ''}`}
+                    onClick={() => setOnglet(cle)} aria-pressed={onglet === cle}>
+              {nom}
+            </button>
+          ))}
+          <span className="meta">
+            {onglet === 'contrat' ? 'un fichier peut-il entrer ? le rapport vérifié indépendamment'
+              : onglet === 'jointure' ? 'ce que la jointure ferait, avant de la faire'
+              : 'vous choisissez chaque stratégie, et repartez avec le script'}
+          </span>
         </div>
 
-        {!detaille && <Gate />}
+        {onglet === 'contrat' && <Gate />}
+        {onglet === 'jointure' && <Jointure />}
 
         {detaille && appState === 'idle' && (
           <div style={{ maxWidth: '34rem' }}>

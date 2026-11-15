@@ -164,3 +164,34 @@ def diagnostiquer(gauche: pd.DataFrame, droite: pd.DataFrame,
                   + " — à décider : est-ce la même clé ?")
         diag.problemes.append({"code": "couverture_insuffisante", "message": m})
     return diag
+
+
+# --------------------------------------------------------------------------- #
+# Ce que la commande et l'API partagent : lire en texte, lire la clé demandée
+# --------------------------------------------------------------------------- #
+async def lire_en_texte(contenu: bytes, nom: str) -> pd.DataFrame:
+    """Le fichier lu en chaînes par le chargeur de la passe sous contrat
+    (encodage, séparateur, noms de colonnes) : « 01000 » reste « 01000 »."""
+    from app.services.profiler import DataProfiler
+    df = await DataProfiler()._load_file(contenu, nom, True)
+    if df is None or df.empty:
+        raise ValueError(f"{nom} : aucune ligne de données")
+    return df
+
+
+def lire_la_cle(sur: List[str]) -> Tuple[List[str], List[str]]:
+    """`a` ou `a=b`, un élément par colonne de clé. Les noms passent par la
+    normalisation des en-têtes, pour qu'on puisse écrire « Id Client »."""
+    from app.services.profiler import DataProfiler
+
+    def propre(nom: str) -> str:
+        return str(DataProfiler._sanitize_columns(pd.Index([nom]))[0])
+
+    g, d = [], []
+    for item in (s for s in sur if s and s.strip()):
+        a, _, b = item.partition("=")
+        g.append(propre(a))
+        d.append(propre(b or a))
+    if not g:
+        raise CleInconnue("aucune colonne de clé n'a été indiquée")
+    return g, d
