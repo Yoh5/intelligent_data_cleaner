@@ -48,6 +48,8 @@ import re
 import numpy as np
 import pandas as pd
 
+import itertools
+
 from app.services.contract import (FORMES, MARQUEURS_VIDES, Contrat,
                                    ContratColonne, _numerique, est_vide,
                                    part_convertible)
@@ -478,6 +480,80 @@ def candidats_cle(df: pd.DataFrame,
     return trouves
 
 
+#: Combien de colonnes on essaie de combiner, et combien de propositions on
+#: rend. Au-delà de trois colonnes, presque n'importe quoi est unique : la
+#: proposition ne dirait plus rien du fichier.
+CLE_TAILLE_MAX = 3
+CLE_BASSIN = (12, 8)       # colonnes essayées par paires, puis par triplets
+CLE_PROPOSITIONS = 3
+
+
+def nom_didentifiant(nom: str) -> bool:
+    return any(m in nom.lower() for m in MOTS_CLE)
+
+
+def cles_composites(df: pd.DataFrame, colonnes: List[str]) -> List[List[str]]:
+    """Les plus petites combinaisons de colonnes que le fichier ne réfute pas.
+
+    `colonnes` : celles qui peuvent entrer dans une clé, donc sans aucun vide —
+    à l'appelant de le garantir, lui seul sait ce qui vaut vide ici.
+
+    On cherche les paires, et les triplets **seulement si aucune paire ne
+    tient** : une combinaison qui en contient une plus petite n'apprend rien,
+    et plus on ajoute de colonnes plus l'unicité devient un accident. Les
+    colonnes constantes sont écartées, celles qui sont uniques seules aussi
+    (c'est l'affaire de l'appelant).
+
+    Le résultat est une **proposition**. L'unicité se mesure sur ce fichier ;
+    que `ts + uid` identifie une ligne demain est une affirmation sur la
+    source, que seul celui qui la connaît peut faire.
+    """
+    n = len(df)
+    if n < 2:
+        return []
+    codes: Dict[str, np.ndarray] = {}
+    card: Dict[str, int] = {}
+    for col in colonnes:
+        k, u = pd.factorize(df[col])
+        if 1 < len(u) < n:
+            codes[col], card[col] = k.astype(np.int64), len(u)
+
+    ordre = {col: rang for rang, col in enumerate(df.columns)}
+    trouvees: List[List[str]] = []
+    for taille, bassin in zip(range(2, CLE_TAILLE_MAX + 1), CLE_BASSIN):
+        # Les colonnes les plus variées d'abord : ce sont elles qui peuvent
+        # séparer des lignes. Puis on les remet dans l'ordre du fichier.
+        retenues = sorted(sorted(codes, key=lambda c: -card[c])[:bassin], key=ordre.get)
+        for combo in itertools.combinations(retenues, taille):
+            produit = 1
+            for col in combo:
+                produit *= card[col]
+            if produit < n:
+                continue                    # pas assez de valeurs pour n lignes
+            cle = codes[combo[0]]
+            for col in combo[1:]:
+                # Recodé à chaque étape : le produit des cardinalités peut
+                # dépasser 2^63 sur un grand fichier.
+                cle = pd.factorize(cle * card[col] + codes[col])[0].astype(np.int64)
+            if len(np.unique(cle)) == n:
+                trouvees.append(list(combo))
+        if trouvees:
+            break
+    trouvees.sort(key=lambda combo: (-sum(nom_didentifiant(c) for c in combo),
+                                     [ordre[c] for c in combo]))
+    return trouvees[:CLE_PROPOSITIONS]
+
+
+def note_cles(candidates: List[List[str]], libelle: str) -> str:
+    """La phrase qui accompagne une proposition de clé."""
+    ecrites = [" + ".join(c) for c in candidates]
+    autres = f" (ou : {' ; '.join(ecrites[1:])})" if len(ecrites) > 1 else ""
+    return (f"clé possible : {ecrites[0]}{autres}. « {libelle} » exige une clé et "
+            f"aucune n'est adoptée d'office : ces colonnes sont uniques sur ce "
+            f"fichier, ce qui ne prouve pas une clé — un fichier ne peut que la "
+            f"réfuter. À déclarer si elles identifient vraiment une ligne.")
+
+
 def inferer(analysis: Dict[str, Any], df: pd.DataFrame,
             usage: str = USAGE_DEFAUT,
             proposer_domaines: bool = False,
@@ -683,6 +759,11 @@ def inferer(analysis: Dict[str, Any], df: pd.DataFrame,
             f"« {reglage['libelle']} » l'exige. Sans clé, une jointure ou un "
             f"chargement incrémental dupliquera des lignes sans le signaler — "
             f"il faut désigner une clé composite.")
+        pleines = [c for c in base.columns
+                   if not base[c].isna().any() and colonnes_prep[c].taux_vide == 0]
+        contrat.cles_candidates = cles_composites(base, pleines)
+        if contrat.cles_candidates:
+            notes.append(note_cles(contrat.cles_candidates, reglage["libelle"]))
 
     vides = [c.nom for c in colonnes
              if float(cols_info.get(c.nom, {}).get("missing_rate", 0)) > 0.6]

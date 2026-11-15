@@ -221,6 +221,9 @@ export interface Contrat {
   lignes_perdues_max: number;
   imputation_max: number;
   usage: string;
+  cle_exigee?: boolean;
+  /** Les clés que le fichier ne réfute pas — proposées, jamais adoptées d'office. */
+  cles_candidates?: string[][];
 }
 
 export interface Rapport {

@@ -250,6 +250,12 @@ class Contrat:
     #: `loaded_scripts.log`, l'indentation dit la profondeur de chargement, et
     #: la rogner effaçait 506 lignes de hiérarchie sous un verdict « tenu ».
     espaces_significatifs: bool = False
+    #: Les clés que le fichier **ne réfute pas**, quand aucune n'est adoptée.
+    #: Ce n'est pas une clause et rien ne la vérifie : c'est une proposition.
+    #: Un fichier ne prouve jamais une clé — il montre seulement que, cette
+    #: fois, ces colonnes n'ont pas porté deux fois la même valeur. Choisir
+    #: revient à qui sait ce que les lignes représentent.
+    cles_candidates: List[List[str]] = field(default_factory=list)
 
     def par_nom(self) -> Dict[str, ContratColonne]:
         return {c.nom: c for c in self.colonnes}
@@ -733,12 +739,17 @@ def verify(df: pd.DataFrame, contrat: Contrat,
 
     # 8. Clé primaire, éventuellement composite
     if contrat.cle_exigee and not contrat.cle_primaire:
+        piste = ""
+        if contrat.cles_candidates:
+            premiere = contrat.cles_candidates[0]
+            piste = (f". Ce fichier ne réfute pas « {' + '.join(premiere)} » "
+                     f"(--cle {'+'.join(premiere)}) : à déclarer si ces colonnes "
+                     f"identifient vraiment une ligne")
         r.violations.append(Violation(
             "cle_absente", None,
-            "l'usage exige une clé, et aucune colonne n'identifie une ligne de "
-            "façon unique : un chargement incrémental ou une jointure "
-            "dupliquerait des lignes sans le signaler — désignez une clé, "
-            "éventuellement composite"))
+            "l'usage exige une clé, et aucune n'est déclarée : un chargement "
+            "incrémental ou une jointure dupliquerait des lignes sans le "
+            "signaler — désignez une clé, éventuellement composite" + piste))
     if contrat.cle_primaire:
         manquantes = [c for c in contrat.cle_primaire if c not in df.columns]
         if manquantes:

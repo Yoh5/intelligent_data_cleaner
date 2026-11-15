@@ -58,7 +58,8 @@ def _charger_contrat(chemin: Optional[str]) -> Optional[Dict[str, Any]]:
     return d
 
 
-def controler(fichier: str, usage: str, contrat: Optional[str]) -> Dict[str, Any]:
+def controler(fichier: str, usage: str, contrat: Optional[str],
+              cle: Optional[List[str]] = None) -> Dict[str, Any]:
     p = Path(fichier)
     if not p.is_file():
         raise Indecidable(f"fichier introuvable : {p}")
@@ -75,7 +76,7 @@ def controler(fichier: str, usage: str, contrat: Optional[str]) -> Dict[str, Any
                           f"(attendu : {', '.join(sorted(contract_infer.USAGES))})")
     try:
         return asyncio.run(agent_contrat.run(p.read_bytes(), p.name,
-                                             usage=usage, contrat=declare))
+                                             usage=usage, contrat=declare, cle=cle))
     except ValueError as e:
         raise Indecidable(f"{p.name} : {e}")
     except Exception as e:
@@ -202,6 +203,9 @@ def main(argv: Optional[List[str]] = None) -> int:
                    help="base (défaut), jointure, modele ou tableau")
     c.add_argument("--contrat", help="contrat JSON à appliquer au lieu de l'inférer "
                                      "(celui écrit par --sortie)")
+    c.add_argument("--cle", metavar="COL[+COL]",
+                   help="la clé que vous déclarez, à la place de celle qui est inférée "
+                        "(composite : ts+uid). Elle est vérifiée sur le fichier")
     c.add_argument("--json", action="store_true", help="verdict en JSON sur la sortie standard")
     c.add_argument("--sortie", metavar="DOSSIER",
                    help="écrire là les données réparées, le Parquet et le contrat")
@@ -235,7 +239,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         return _commande_join(args)
 
     try:
-        res = controler(args.fichier, args.usage, args.contrat)
+        cle = [c.strip() for c in args.cle.split("+") if c.strip()] if args.cle else None
+        res = controler(args.fichier, args.usage, args.contrat, cle)
         ecrits = _ecrire(res, args.fichier, args.sortie) if args.sortie else []
     except Indecidable as e:
         print(f"indécidable : {e}", file=sys.stderr)

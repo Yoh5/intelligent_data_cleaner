@@ -230,6 +230,39 @@ body {
   }
   .tag--key { border-color: var(--stamp); color: var(--stamp); background: var(--stamp-weak); }
 
+  /* ── La clé à déclarer : une décision, donc l'ambre des décisions ── */
+  .key-pick {
+    margin-top: 1.6rem;
+    padding: 1rem 1.1rem 1.1rem;
+    border: 1px solid var(--rule);
+    border-radius: var(--r);
+    background: var(--hold-weak);
+  }
+  .key-why { @apply text-[0.84rem] leading-relaxed; color: var(--ink-2); max-width: 70ch; margin-top: 0.35rem; }
+  .key-opts { @apply flex flex-wrap gap-2; margin-top: 0.85rem; }
+  .key-opt {
+    @apply inline-flex items-center gap-2.5 text-left text-[0.84rem] cursor-pointer;
+    min-height: 44px;
+    padding: 0.5rem 0.9rem;
+    border: 1px solid var(--rule);
+    border-radius: var(--r);
+    background: var(--card);
+    color: var(--ink);
+    transition: border-color 120ms ease-out, background-color 120ms ease-out;
+  }
+  .key-opt:hover { border-color: var(--stamp); }
+  .key-opt--on { border-color: var(--stamp); background: var(--stamp-weak); box-shadow: inset 0 0 0 1px var(--stamp); }
+  .key-cols { @apply font-mono text-[0.8rem]; }
+  .key-note { color: var(--ink-2); }
+  .key-dot {
+    flex: none;
+    width: 0.85rem; height: 0.85rem;
+    border-radius: 50%;
+    border: 1.5px solid var(--ink-3);
+    background: var(--card);
+  }
+  .key-opt--on .key-dot { border-color: var(--stamp); background: radial-gradient(circle, var(--stamp) 0 42%, var(--card) 46%); }
+
   .notes { @apply flex flex-col gap-2; margin-top: 1rem; }
   .note-item {
     @apply flex gap-2.5 text-[0.84rem] leading-relaxed;

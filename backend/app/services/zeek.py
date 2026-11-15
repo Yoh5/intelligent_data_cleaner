@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import gzip
 import io
+import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
@@ -41,6 +42,14 @@ from app.services import contract_infer
 from app.services.contract import Contrat, ContratColonne
 
 _GZIP = b"\x1f\x8b"
+
+#: Les noms que Zeek donne à ses identifiants : `uid` (connexion), `fuid`
+#: (fichier), `id`. Une colonne unique qui porte un tel nom est adoptée comme
+#: clé ; une colonne unique qui n'en porte pas est seulement proposée.
+_IDENTIFIANT = re.compile(r"(^|_)f?u?id$")
+#: Les types qui mesurent au lieu de nommer. Un horodatage unique l'est
+#: jusqu'au jour où deux événements tombent dans la même microseconde.
+_MESURES = frozenset({"time", "interval", "double", "count", "int", "port", "bool"})
 
 
 @dataclass
@@ -246,14 +255,31 @@ def contrat(df: pd.DataFrame, entete: Entete,
         notes.append(f"champ(s) parfois non renseigné(s), laissés vides et jamais "
                      f"comblés : {', '.join(vides)}.")
 
-    if "uid" in df.columns and n and not df["uid"].isna().any() and df["uid"].is_unique:
-        ct.cle_primaire = ["uid"]
+    pleines = [c for c in df.columns if n and not df[c].isna().any()]
+    uniques = [c for c in pleines if df[c].is_unique]
+    # Adoptée d'office : seulement une colonne dont le NOM dit qu'elle
+    # identifie (`uid`, `fuid`, `id`) et dont le type n'est pas une mesure.
+    # Sur un journal de trois lignes tout est unique ; `referrer` ne devient
+    # pas une clé pour autant.
+    nommees = sorted((c for c in uniques if _IDENTIFIANT.search(c)
+                      and entete.types.get(c, "string").strip() not in _MESURES),
+                     key=lambda c: (c != "uid", list(df.columns).index(c)))
+    if nommees:
+        ct.cle_primaire = [nommees[0]]
         for cc in colonnes:
-            if cc.nom == "uid":
+            if cc.nom == nommees[0]:
                 cc.unique = True
     elif ct.cle_exigee:
         notes.append(
-            "aucune clé : `uid` est absent ou répété (normal pour dns.log ou "
-            f"http.log, qui ont plusieurs lignes par connexion), alors que "
-            f"« {reglage['libelle']} » en exige une — désignez une clé composite.")
+            "aucune clé adoptée : `uid` est absent ou répété (normal pour dns.log "
+            f"ou http.log, qui ont plusieurs lignes par connexion), alors que "
+            f"« {reglage['libelle']} » en exige une.")
+        # Ce que le fichier ne réfute pas : une colonne unique sans nom
+        # d'identifiant, sinon la plus petite combinaison.
+        ct.cles_candidates = ([[c] for c in uniques][:contract_infer.CLE_PROPOSITIONS]
+                              if n > 1 else [])
+        if not ct.cles_candidates:
+            ct.cles_candidates = contract_infer.cles_composites(df, pleines)
+        if ct.cles_candidates:
+            notes.append(contract_infer.note_cles(ct.cles_candidates, reglage["libelle"]))
     return ct, notes

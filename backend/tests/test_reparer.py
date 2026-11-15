@@ -125,7 +125,7 @@ def test_doublons_francs_puis_conflits_de_cle():
     df = pd.DataFrame({"id": ["1", "1", "2", "2"],
                        "ville": ["a", "a", "b", "c"],
                        "age": ["1", "1", "2", "3"]})
-    out, j = R.appliquer(df, contrat())
+    out, j = R.appliquer(df, contrat(lignes_perdues_max=0.5))
     assert len(out) == 2
     actions = {g.action for g in j.faits}
     assert "doublons" in actions and "cle" in actions
@@ -135,9 +135,23 @@ def test_doublons_francs_puis_conflits_de_cle():
 
 def test_les_lignes_a_cle_vide_sont_retirees():
     df = pd.DataFrame({"id": ["1", None], "ville": ["a", "b"], "age": ["1", "2"]})
-    out, j = R.appliquer(df, contrat())
+    out, j = R.appliquer(df, contrat(lignes_perdues_max=0.5))
     assert len(out) == 1
     assert any("clé vide" in g.detail for g in j.faits)
+
+
+def test_une_cle_ne_se_fait_pas_tenir_en_jetant_ce_qui_la_contredit():
+    """Au-delà du budget de lignes perdues, la réparation refuse : c'est le
+    fichier qui réfute la clé. Trouvé en déclarant `uid` clé d'un dns.log —
+    deux événements sur cinq écartés, et une clé parfaite en sortie."""
+    df = pd.DataFrame({"id": ["1", "2", "2", "3", None],
+                       "ville": ["a", "b", "c", "d", "e"],
+                       "age": ["1", "2", "3", "4", "5"]})
+    out, j = R.appliquer(df, contrat())          # budget par défaut : 5 %
+    assert len(out) == 5
+    assert any(g.action == "cle" and "réfute" in g.detail for g in j.refus)
+    rapport = C.verify(out, contrat(), origine=df)
+    assert any(v.code == "cle_non_unique" for v in rapport.bloquantes)
 
 
 # --------------------------------------------------------------------------- #

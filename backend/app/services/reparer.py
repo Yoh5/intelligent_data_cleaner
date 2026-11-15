@@ -302,6 +302,24 @@ def dedupliquer(df: pd.DataFrame, contrat: Contrat,
     if contrat.cle_primaire and all(c in df.columns for c in contrat.cle_primaire):
         cle = contrat.cle_primaire
         conflits = int(df.duplicated(subset=cle).sum())
+        nuls_cle = int(df[cle].isna().any(axis=1).sum())
+        a_jeter = int((df.duplicated(subset=cle) | df[cle].isna().any(axis=1)).sum())
+        if a_jeter and a_jeter / max(1, len(df)) > contrat.lignes_perdues_max + 1e-9:
+            # Faire tenir une clé en jetant les lignes qui la contredisent
+            # n'est pas une réparation : c'est le fichier qui réfute la clé.
+            # Sur un journal, déclarer `uid` clé d'un dns.log écartait deux
+            # événements sur cinq, et la sortie avait une clé parfaite. Au-delà
+            # du budget de lignes perdues on ne retire rien, et la
+            # vérification dira que la clé ne tient pas.
+            j.refuse("cle", "+".join(cle),
+                     f"{conflits} ligne(s) en conflit de clé et {nuls_cle} à clé "
+                     f"vide ({a_jeter / max(1, len(df)):.1%}) : les écarter "
+                     f"dépasserait le budget de lignes perdues de "
+                     f"{contrat.lignes_perdues_max:.0%}. Rien n'est retiré — le "
+                     f"fichier réfute cette clé, il ne se répare pas en "
+                     f"supprimant ce qui la contredit",
+                     mesure=float(a_jeter))
+            return df
         if conflits:
             df = df.drop_duplicates(subset=cle, keep="first").reset_index(drop=True)
             j.fait("cle", "+".join(cle),

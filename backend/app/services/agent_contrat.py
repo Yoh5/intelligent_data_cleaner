@@ -145,9 +145,11 @@ def enonce(rapport: contract.Rapport, journal: reparer.Journal) -> Dict[str, Lis
 
 async def run(content: bytes, filename: str, usage: str = "modele",
               contrat: Optional[Dict[str, Any]] = None,
-              max_octets: Optional[int] = None) -> Dict[str, Any]:
+              max_octets: Optional[int] = None,
+              cle: Optional[List[str]] = None) -> Dict[str, Any]:
     """Une passe complète. `contrat` permet de passer un contrat édité par
-    l'utilisateur ; sans lui, il est inféré de l'usage déclaré."""
+    l'utilisateur ; sans lui, il est inféré de l'usage déclaré. `cle` déclare
+    la clé à la place de celle qui a été inférée (ou de son absence)."""
     journal_zeek = zeek.est_zeek(content)
     if journal_zeek:
         # Le journal déclare ses colonnes et leurs types : on lit sa
@@ -163,6 +165,9 @@ async def run(content: bytes, filename: str, usage: str = "modele",
             ct, notes = contract.Contrat.from_dict(contrat), []
         else:
             ct, notes = contract_infer.inferer(analyse, origine, usage=usage)
+
+    if cle:
+        _declarer_la_cle(ct, list(cle), origine, notes)
 
     avant = contract.verify(origine, ct, origine=None)
     propre, journal = reparer.appliquer(origine, ct)
@@ -189,6 +194,27 @@ async def run(content: bytes, filename: str, usage: str = "modele",
         "script": _script(ct, journal, filename, zeek=journal_zeek),
         "message": _message(avant, apres, journal),
     }
+
+
+def _declarer_la_cle(ct: contract.Contrat, cle: List[str], origine,
+                     notes: List[str]) -> None:
+    """La clé que l'utilisateur déclare remplace celle qu'on avait inférée.
+
+    Une colonne absente est une erreur de déclaration, pas un verdict sur les
+    données : on lève, et la commande sort en « indécidable ».
+    """
+    absentes = [c for c in cle if c not in origine.columns]
+    if absentes:
+        raise ValueError(
+            f"clé déclarée : colonne(s) absente(s) du fichier — {', '.join(absentes)}. "
+            f"Colonnes disponibles : {', '.join(map(str, origine.columns))}")
+    ct.cle_primaire = cle
+    ct.cles_candidates = []
+    for cc in ct.colonnes:
+        cc.unique = len(cle) == 1 and cc.nom == cle[0]
+    notes.append(f"clé déclarée par vous : {' + '.join(cle)}. Elle est vérifiée "
+                 f"sur ce fichier ; qu'elle tienne sur les suivants est votre "
+                 f"affirmation, pas une mesure.")
 
 
 def _message(avant: contract.Rapport, apres: contract.Rapport,

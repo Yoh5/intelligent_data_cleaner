@@ -112,8 +112,64 @@ export function Depot({ fichier, onFichier, onErreur }: {
 
 /* ── Étape 3 : le contrat proposé ─────────────────────────────────── */
 
-function ContratPropose({ p }: { p: Proposition }) {
-  const cle = new Set(p.contrat.cle_primaire || []);
+/** La clé déclarée par l'utilisateur, reportée dans le contrat qu'on enverra. */
+const avecCle = (c: Contrat, cle: string[] | null): Contrat => !cle ? c : {
+  ...c,
+  cle_primaire: cle,
+  cles_candidates: [],
+  colonnes: c.colonnes.map((col) => ({ ...col, unique: cle.length === 1 && col.nom === cle[0] })),
+};
+
+const memeCle = (a: string[] | null, b: string[] | null) =>
+  (a === null || b === null) ? a === b : a.join('+') === b.join('+');
+
+/** Le fichier ne prouve pas une clé : il la propose, et c'est l'utilisateur qui la déclare. */
+function ChoixCle({ candidates, choisie, onChoix }: {
+  candidates: string[][]; choisie: string[] | null; onChoix: (c: string[] | null) => void;
+}) {
+  const options: (string[] | null)[] = [...candidates, null];
+  const groupe = useRef<HTMLDivElement>(null);
+  const auClavier = (e: React.KeyboardEvent, i: number) => {
+    const pas = ['ArrowRight', 'ArrowDown'].includes(e.key) ? 1 : ['ArrowLeft', 'ArrowUp'].includes(e.key) ? -1 : 0;
+    if (!pas) return;
+    e.preventDefault();
+    const j = (i + pas + options.length) % options.length;
+    onChoix(options[j]);
+    (groupe.current?.children[j] as HTMLElement | undefined)?.focus();
+  };
+  return (
+    <div className="key-pick">
+      <h3 id="choix-cle" className="h2" style={{ fontSize: '0.98rem' }}>La clé — à vous de la déclarer</h3>
+      <p className="key-why">
+        {candidates.length > 1
+          ? 'Cet usage exige une clé, et aucune colonne ne s’annonce comme identifiant. Ces combinaisons sont uniques sur ce fichier : il ne les réfute pas, ce qui ne prouve pas une clé. Déclarez-en une seulement si elle identifie vraiment une ligne.'
+          : 'Cet usage exige une clé, et aucune colonne ne s’annonce comme identifiant. Cette combinaison est unique sur ce fichier : il ne la réfute pas, ce qui ne prouve pas une clé. Déclarez-la seulement si elle identifie vraiment une ligne.'}
+      </p>
+      <div ref={groupe} className="key-opts" role="radiogroup" aria-labelledby="choix-cle">
+        {options.map((o, i) => {
+          const actif = memeCle(o, choisie);
+          return (
+            <button key={o ? o.join('+') : 'aucune'} type="button" role="radio" aria-checked={actif}
+                    tabIndex={actif ? 0 : -1} className={`key-opt ${actif ? 'key-opt--on' : ''}`}
+                    onClick={() => onChoix(o)} onKeyDown={(e) => auClavier(e, i)}>
+              <span className="key-dot" aria-hidden="true" />
+              {o ? <span className="key-cols">{o.join(' + ')}</span>
+                 : <span>Aucune <span className="key-note">— le contrat ne tiendra pas pour cet usage</span></span>}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function ContratPropose({ p, cleChoisie, onCle }: {
+  p: Proposition; cleChoisie: string[] | null; onCle: (c: string[] | null) => void;
+}) {
+  const cle = new Set(cleChoisie || p.contrat.cle_primaire || []);
+  const candidates = (p.contrat.cle_primaire || []).length ? [] : (p.contrat.cles_candidates || []);
+  // La phrase « clé possible » est remplacée par le choix lui-même.
+  const arbitrages = candidates.length ? p.arbitrages.filter((a) => !a.startsWith('clé possible')) : p.arbitrages;
   return (
     <>
       <p className="meta" style={{ marginBottom: '1rem' }}>
@@ -149,16 +205,18 @@ function ContratPropose({ p }: { p: Proposition }) {
         </table>
       </div>
 
-      {p.arbitrages.length > 0 && (
+      {candidates.length > 0 && <ChoixCle candidates={candidates} choisie={cleChoisie} onChoix={onCle} />}
+
+      {arbitrages.length > 0 && (
         <>
           <h3 className="h2" style={{ fontSize: '0.98rem', marginTop: '1.6rem' }}>
             Ce que le fichier ne peut pas tenir, et ce qui reste à décider
           </h3>
           <div className="notes">
-            {p.arbitrages.filter((a) => !estInformation(a)).map((a, i) => (
+            {arbitrages.filter((a) => !estInformation(a)).map((a, i) => (
               <p key={i} className="note-item"><IconAlert size={16} /><AvecColonnes texte={a} /></p>
             ))}
-            {p.arbitrages.filter(estInformation).map((a, i) => (
+            {arbitrages.filter(estInformation).map((a, i) => (
               <p key={`i${i}`} className="note-item note-item--info"><IconShield size={16} /><AvecColonnes texte={a} /></p>
             ))}
           </div>
@@ -348,13 +406,16 @@ export function Gate() {
   const [passage, setPassage] = useState<PassageContrat | null>(null);
   const [charge, setCharge] = useState<'' | 'propose' | 'passe'>('');
   const [erreur, setErreur] = useState<string | null>(null);
+  const [cleChoisie, setCleChoisie] = useState<string[] | null>(null);
 
-  const reinitialiser = (f: File | null) => { setFichier(f); setProposition(null); setPassage(null); setErreur(null); };
-  const changerUsage = (u: UsageKey) => { setUsage(u); setProposition(null); setPassage(null); };
+  const reinitialiser = (f: File | null) => { setFichier(f); setProposition(null); setPassage(null); setErreur(null); setCleChoisie(null); };
+  const changerUsage = (u: UsageKey) => { setUsage(u); setProposition(null); setPassage(null); setCleChoisie(null); };
+  // Changer de clé change le contrat : le rapport affiché ne vaudrait plus pour lui.
+  const choisirCle = (c: string[] | null) => { setCleChoisie(c); setPassage(null); };
 
   const proposer = async () => {
     if (!fichier) return;
-    setCharge('propose'); setErreur(null); setPassage(null);
+    setCharge('propose'); setErreur(null); setPassage(null); setCleChoisie(null);
     try { setProposition(await proposerContrat(fichier, usage)); }
     catch (e: any) { setErreur(e.message); }
     finally { setCharge(''); }
@@ -408,9 +469,9 @@ export function Gate() {
             <span className="section-label">rien n&apos;a encore été modifié</span>
           </div>
           <div className="card">
-            <ContratPropose p={proposition} />
+            <ContratPropose p={proposition} cleChoisie={cleChoisie} onCle={choisirCle} />
             <div className="downloads">
-              <button className="btn btn--primary" onClick={() => passer(proposition.contrat)} disabled={charge !== ''}>
+              <button className="btn btn--primary" onClick={() => passer(avecCle(proposition.contrat, cleChoisie))} disabled={charge !== ''}>
                 {charge === 'passe' && <span className="spinner" />}
                 Réparer et vérifier
               </button>

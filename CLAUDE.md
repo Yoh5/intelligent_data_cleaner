@@ -30,7 +30,7 @@ OPENAI_API_KEY=<key> docker-compose up --build
 ```bash
 cd backend
 pip install pandas numpy openpyxl fastapi "pydantic>=2" pydantic-settings python-multipart httpx openai pytest
-pytest tests/ -q   # 295 tests (1 skipped ; les tests sur fichiers réels sont sautés sans corpus-public) : advisor, quality, agent_cleaner, contract, reparer, corpus, preparation, forme, excel, bout-en-bout
+pytest tests/ -q   # 344 tests (3 skipped ; les tests sur fichiers réels sont sautés sans corpus-public) : advisor, quality, agent_cleaner, contract, reparer, corpus, preparation, forme, excel, bout-en-bout
 ```
 CI : `.github/workflows/tests.yml` (push/PR). La boucle agentique tourne 100 % offline (conseiller fail-open → rule-based).
 
@@ -236,9 +236,35 @@ only an outside comparison catches what that equivalence forgives. When reading 
 delivered CSV in a test, use `csv.reader`, not `pd.read_csv`: pandas turns `none`
 back into NaN and the test sees nothing.
 
-Still open: for usage `base`, 24 of the 34 logs fail on `cle_absente` alone — true
-(`uid` repeats or is absent), but the tool only ever tries `uid`. `files.log` has
-`fuid`, `x509.log` a fingerprint; proposing a key from the data is the next step.
+### Keys are proposed, never decreed — `contract_infer.cles_composites`, `tests/test_cles.py`
+
+A key is a claim about FUTURE files; one file can refute it, never prove it. Three
+separate acts, and do not merge them:
+
+- **Adopted** (Zeek): a unique, void-free column whose *name* is an identifier
+  (`zeek._IDENTIFIANT`: uid, fuid, id) and whose declared type is not a measure.
+  Uniqueness alone adopts nothing — in a 3-row log every column is unique.
+- **Proposed**: `Contrat.cles_candidates` (not a clause; `verify` only quotes it in
+  the `cle_absente` message). Other unique single columns first; otherwise minimal
+  composites — pairs, triples **only if no pair holds**, constants and single keys
+  excluded, pool capped (`CLE_BASSIN`). Only computed when the usage requires a key.
+  The CSV path (`inferer`) proposes composites the same way when no single key exists.
+- **Declared**: `agent_contrat.run(..., cle=[...])`, CLI `--cle a+b` (unknown column ->
+  exit 2, undecidable), UI radiogroup in `Gate.tsx` (`ChoixCle`) which rewrites
+  `cle_primaire` in the contract sent to `/contract-clean/`. Changing the choice
+  clears the displayed report: it was a verdict on another contract.
+
+Measured on the 35 full logs: 12 adopted, 20 proposed and all 20 held once declared,
+3 with no key at all (dns.log: three duplicated answers differ only by `rtt`, which is
+sometimes void — that is a finding, not a failure). `uid + trans_depth` for http.log is
+the textbook key and was found, but so was `ts + response_body_len` on a 3,000-row
+extract: proposals include accidents, which is exactly why they are not adopted.
+
+**`reparer.dedupliquer` no longer makes a key hold by deleting what contradicts it.**
+Declaring `uid` as key of a dns.log dropped 2 events out of 5 and delivered a perfect
+key, score 85. Beyond `lignes_perdues_max` it now refuses (journal `refus`), removes
+nothing, and `verify` raises the blocking `cle_non_unique`. Within budget the old
+behaviour stands (first row kept, said to be arbitrary).
 
 ### Shape: what a value must look like — `contract.FORMES`
 

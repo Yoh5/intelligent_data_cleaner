@@ -433,13 +433,46 @@ journaux déclarés « tenus, 100/100 » :
 | `-2.1504318496896954e+09` ressortait `-2150431849.689696` : la lecture rapide de pandas n'est pas exacte au dernier chiffre, **sur n'importe quel fichier** | les nombres de plus de quinze chiffres sont relus avec `float()` |
 
 Après correction : **0 cellule modifiée** sur les 34 journaux entiers, tous
-tenus pour l'usage `tableau`. Pour l'usage `base`, 24 sur 34 échouent sur
-une seule clause, et elle est vraie : `uid` n'y identifie pas une ligne, et
-l'outil ne propose pas encore d'autre clé.
+tenus pour l'usage `tableau`. Pour l'usage `base`, 24 sur 34 échouaient sur
+une seule clause, et elle était vraie : `uid` n'y identifie pas une ligne.
+C'est l'objet de la section suivante.
 
 La leçon dépasse Zeek : un verdict « tenu » rendu par l'outil sur sa propre
 sortie ne vaut que ce que vaut son équivalence de lignes. Le test
 `test_reel_chaque_cellule_livree_vaut_la_cellule_recue` ne lui demande rien.
+
+### Proposer une clé, sans la décréter
+
+```bash
+python -m app.cli check http.log.gz --usage base                        # non tenu : aucune clé
+python -m app.cli check http.log.gz --usage base --cle uid+trans_depth  # tenu
+```
+
+Une clé est une déclaration sur les fichiers **à venir**. Un fichier ne peut
+pas la prouver : il montre seulement que, cette fois, ces colonnes n'ont pas
+porté deux fois la même valeur. L'outil sépare donc trois gestes :
+
+| | quand | exemple réel |
+|---|---|---|
+| **adoptée d'office** | une colonne unique dont le *nom* dit qu'elle identifie (`uid`, `fuid`, `id`) | `uid` dans `conn.log`, `id` dans `ocsp.log` |
+| **proposée** | une autre colonne unique, sinon la plus petite combinaison (2 colonnes, 3 seulement si aucune paire ne tient) | `uid + trans_depth` pour `http.log`, `ts + fuid` pour `files.log` |
+| **déclarée** | par vous : `--cle a+b`, ou un choix à l'étape 3 de l'interface | — |
+
+Sur les 35 journaux entiers : 12 clés adoptées, 20 proposées qui **tiennent
+toutes** une fois déclarées, et 3 journaux sans clé possible — ce qui est une
+information : dans `dns.log`, trois réponses dupliquées ne diffèrent que par
+leur temps de réponse.
+
+Une proposition n'est pas une vérité : sur un extrait de 3 000 lignes,
+`ts + response_body_len` est unique aussi, par accident. C'est pourquoi rien
+n'est adopté sur la seule unicité, et pourquoi sur un journal de trois lignes
+`referrer` ne devient pas une clé.
+
+Trouvé en chemin : **déclarer une clé que le fichier réfute la faisait
+« tenir » en jetant les lignes gênantes.** Avec `uid` pour clé d'un `dns.log`,
+la réparation écartait deux événements sur cinq et livrait une clé parfaite,
+score 85. Au-delà du budget de lignes perdues, elle refuse maintenant de rien
+retirer, et la vérification dit que la clé ne tient pas (bloquant).
 
 ---
 
