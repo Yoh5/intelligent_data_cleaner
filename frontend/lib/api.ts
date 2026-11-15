@@ -210,6 +210,7 @@ export interface ContratColonne {
   minimum: number | null;
   maximum: number | null;
   forme: string | null;
+  casse_significative?: boolean;
   politique_aberrantes: string;
 }
 

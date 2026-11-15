@@ -20,12 +20,14 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from app.services import agent_contrat, contract, contract_infer
+from app.services import agent_contrat, contract, contract_infer, zeek
 from app.services.profiler import DataProfiler
 
 router = APIRouter(prefix="/contract-clean", tags=["contract-clean"])
 
 _ALLOWED = {".csv", ".xlsx", ".xls"}
+#: Journaux Zeek : texte tabulé, éventuellement compressé.
+_JOURNAUX = {".log", ".gz"}
 
 #: Débit mesuré de la passe complète : **1,8 Mo/s** (500 000 lignes, 21 Mo, en
 #: 11,4 s de médiane sur cinq passages, écart-type 0,8 s).
@@ -74,9 +76,22 @@ def _verifier_taille(content: bytes) -> None:
 def _verifier(file: UploadFile) -> str:
     name = file.filename or ""
     ext = name.lower()[name.rfind("."):] if "." in name else ""
-    if ext not in _ALLOWED:
+    if ext not in _ALLOWED and ext not in _JOURNAUX:
         raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext}")
     return name
+
+
+def _journal_zeek(name: str, content: bytes) -> bool:
+    """Vrai pour un journal Zeek ; 400 pour un `.log` qui n'en est pas un."""
+    if zeek.est_zeek(content):
+        return True
+    ext = name.lower()[name.rfind("."):] if "." in name else ""
+    if ext in _JOURNAUX:
+        raise HTTPException(
+            status_code=400,
+            detail=f"« {name} » n'est ni un CSV, ni un Excel, ni un journal Zeek "
+                   f"(il ne commence pas par #separator).")
+    return False
 
 
 @router.get("/usages", response_model=list[Usage])
@@ -105,6 +120,21 @@ async def propose(file: UploadFile = File(...),
             detail=f"Usage inconnu : {usage!r} "
                    f"(attendu : {sorted(contract_infer.USAGES)})")
     try:
+        if _journal_zeek(name, content):
+            # Le journal déclare son contrat : on le lit au lieu de l'inférer.
+            df, entete = zeek.lire(content, _MAX)
+            ct, notes = zeek.contrat(df, entete, usage=usage)
+            avant = contract.verify(df, ct)
+            return {
+                "usage": usage,
+                "libelle": contract_infer.USAGES[usage]["libelle"],
+                "contrat": ct.to_dict(),
+                "contrat_lisible": contract_infer.resume(ct),
+                "arbitrages": notes,
+                "etat_initial": avant.to_dict(),
+                "dataset": {"filename": name, "rows": len(df),
+                            "columns": len(df.columns), "size_bytes": len(content)},
+            }
         p = DataProfiler()
         analyse = await p.analyze_file(content, name, texte_brut=True)
         ct, notes = contract_infer.inferer(
@@ -121,6 +151,8 @@ async def propose(file: UploadFile = File(...),
         }
     except HTTPException:
         raise
+    except zeek.TropVolumineux as e:
+        raise HTTPException(status_code=413, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=_sans_donnees(name, e))
     except Exception as e:
@@ -151,9 +183,13 @@ async def contract_clean(file: UploadFile = File(...),
             raise HTTPException(status_code=400, detail=f"Contrat invalide : {e}")
 
     try:
-        return await agent_contrat.run(content, name, usage=usage, contrat=declare)
+        _journal_zeek(name, content)
+        return await agent_contrat.run(content, name, usage=usage, contrat=declare,
+                                       max_octets=_MAX)
     except HTTPException:
         raise
+    except zeek.TropVolumineux as e:
+        raise HTTPException(status_code=413, detail=str(e))
     except ValueError as e:
         # Un fichier sans ligne de données est un état légitime avant le
         # premier chargement et catastrophique après. L'outil ne peut pas

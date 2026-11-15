@@ -97,15 +97,33 @@ TYPES = ("integer", "number", "boolean", "datetime", "category", "string")
 #: Les motifs sont volontairement stricts. Un motif permissif laisse passer ce
 #: qu'il prétend attraper, et une forme qui ne refuse rien est pire qu'absente
 #: puisqu'elle rassure.
+_OCTET = r"(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)"
+_V4 = rf"(?:{_OCTET}\.){{3}}{_OCTET}"
+_H = r"[0-9a-fA-F]{1,4}"
+#: IPv6 complet : forme longue, toutes les formes abrégées par `::`, et les
+#: adresses qui finissent par une IPv4. L'ancien motif ne connaissait le `::`
+#: qu'en tête ou en queue : `fe80::215:17ff:fe84:c13f`, l'adresse la plus
+#: banale d'un réseau local, était déclarée invalide — donc vidée par la
+#: réparation. Vérifié contre `ipaddress` dans `tests/test_zeek.py`.
+_V6 = (rf"(?:(?:{_H}:){{7}}{_H}|(?:{_H}:){{1,7}}:|(?:{_H}:){{1,6}}:{_H}"
+       rf"|(?:{_H}:){{1,5}}(?::{_H}){{1,2}}|(?:{_H}:){{1,4}}(?::{_H}){{1,3}}"
+       rf"|(?:{_H}:){{1,3}}(?::{_H}){{1,4}}|(?:{_H}:){{1,2}}(?::{_H}){{1,5}}"
+       rf"|{_H}:(?::{_H}){{1,6}}|:(?:(?::{_H}){{1,7}}|:)"
+       rf"|(?:{_H}:){{6}}{_V4}|(?:{_H}:){{1,5}}:{_V4}|(?:{_H}:){{1,4}}:{_H}:{_V4}"
+       rf"|(?:{_H}:){{1,3}}:(?:{_H}:){{1,2}}{_V4}|(?:{_H}:){{1,2}}:(?:{_H}:){{1,3}}{_V4}"
+       rf"|{_H}::(?:{_H}:){{1,4}}{_V4}|::(?:{_H}:){{0,5}}{_V4})")
+
 FORMES: Dict[str, str] = {
-    "ipv4": r"^((25[0-5]|2[0-4]\d|[01]?\d?\d)\.){3}(25[0-5]|2[0-4]\d|[01]?\d?\d)$",
-    "ipv6": r"^(([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|::|([0-9a-fA-F]{1,4}:){1,7}:|:(:[0-9a-fA-F]{1,4}){1,7})$",
+    "ipv4": rf"^{_V4}$",
+    "ipv6": rf"^{_V6}$",
     "mac": r"^([0-9a-fA-F]{2}[:-]){5}[0-9a-fA-F]{2}$",
     "email": r"^[^@\s]+@[^@\s.]+\.[^@\s]{2,}$",
     "uuid": r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
     "url": r"^https?://[^\s/$.?#][^\s]*$",
     "sha256": r"^[0-9a-fA-F]{64}$",
     "md5": r"^[0-9a-fA-F]{32}$",
+    # L'une ou l'autre : ce qu'un champ `addr` de journal réseau contient.
+    "ip": rf"^(?:{_V4}|{_V6})$",
 }
 
 #: Une violation bloquante plafonne le score : on ne peut pas être « à 100 »
@@ -114,12 +132,13 @@ FORMES: Dict[str, str] = {
 BLOQUANTES = frozenset({
     "colonne_absente", "type_inconvertible", "cle_non_unique",
     "marqueur_vide_en_valeur", "colonne_supprimee", "cle_absente",
+    "valeurs_detruites",
 })
 PLAFOND_BLOQUANT = 55
 
 POIDS = {
     "colonne_absente": 25, "type_inconvertible": 20, "cle_non_unique": 20,
-    "cle_absente": 20,
+    "cle_absente": 20, "valeurs_detruites": 20,
     "marqueur_vide_en_valeur": 15, "colonne_supprimee": 20,
     "doublons_lignes": 12, "taux_nul_depasse": 10, "imputation_excessive": 12,
     "masse_ponctuelle": 12, "lignes_perdues": 15, "hors_domaine": 8,
@@ -607,14 +626,21 @@ def verify(df: pd.DataFrame, contrat: Contrat,
             bas = int((v < cc.minimum).sum()) if cc.minimum is not None else 0
             haut = int((v > cc.maximum).sum()) if cc.maximum is not None else 0
             if bas or haut:
+                # Une borne absente ne s'écrit pas « None » : on ne cite que
+                # celles qui existent.
+                detail = [f"{bas} valeur(s) sous {cc.minimum:g}"] if bas else []
+                if haut:
+                    detail.append(f"{haut} valeur(s) au-dessus de {cc.maximum:g}")
                 r.violations.append(Violation(
-                    "hors_plage", nom,
-                    f"« {nom} » : {bas} valeur(s) sous {cc.minimum}, "
-                    f"{haut} au-dessus de {cc.maximum}",
+                    "hors_plage", nom, f"« {nom} » : {', '.join(detail)}",
                     mesure=float(bas + haut)))
+            elif cc.maximum is None:
+                r.satisfait.append(f"« {nom} » ne descend jamais sous {cc.minimum:g}")
+            elif cc.minimum is None:
+                r.satisfait.append(f"« {nom} » ne dépasse jamais {cc.maximum:g}")
             else:
                 r.satisfait.append(
-                    f"« {nom} » reste dans [{cc.minimum}, {cc.maximum}]")
+                    f"« {nom} » reste dans [{cc.minimum:g}, {cc.maximum:g}]")
 
         # 7. Collision de casse — deux modalités qui ne diffèrent que par la
         #    casse ou les espaces sont une seule modalité comptée deux fois.
@@ -777,6 +803,25 @@ def _perte_information(df: pd.DataFrame, origine: pd.DataFrame,
         cc = par_nom.get(nom)
         budget = (cc.imputation_max if cc and cc.imputation_max is not None
                   else contrat.imputation_max)
+
+        # Des valeurs présentes en entrée, vides en sortie. La réparation met à
+        # vide ce qui ne tient pas le type ou la forme déclarés, et le dit dans
+        # son journal — mais le vérificateur ne lit pas le journal, et tant
+        # que le taux de vides restait sous son plafond, le contrat était
+        # déclaré tenu sur une sortie amputée (un `beaucoup` dans un compteur
+        # d'octets disparaissait sans violation). Ici on compte : les retraits
+        # de lignes et les imputations ne peuvent que FAIRE BAISSER le nombre
+        # de vides, donc une hausse est une destruction certaine. C'est une
+        # borne basse, sans faux positif.
+        detruites = int(df[nom].isna().sum()) - int(base[nom].isna().sum())
+        if detruites > 0 and not (cc and cc.politique_aberrantes == "vider"):
+            r.violations.append(Violation(
+                "valeurs_detruites", nom,
+                f"« {nom} » : au moins {detruites} valeur(s) présente(s) en entrée "
+                f"sont vides en sortie — illisibles dans le type ou la forme "
+                f"déclarés. Le fichier livré n'est plus le fichier reçu : à "
+                f"corriger à la source, ou à déclarer autrement",
+                mesure=float(detruites)))
 
         # Taux et non comptes : voir le premier piège du docstring.
         comble = max(0.0, float(base[nom].isna().mean())

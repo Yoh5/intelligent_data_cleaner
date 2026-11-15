@@ -32,10 +32,12 @@ from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
-from app.services import agent_contrat, contract, contract_infer, jointure
+from app.services import agent_contrat, contract, contract_infer, jointure, zeek
 
 TENU, NON_TENU, INDECIDABLE = 0, 1, 2
 EXTENSIONS = {".csv", ".xlsx", ".xls"}
+#: Les journaux Zeek : texte tabulé, éventuellement compressé.
+JOURNAUX = {".log", ".gz"}
 
 
 class Indecidable(Exception):
@@ -60,9 +62,13 @@ def controler(fichier: str, usage: str, contrat: Optional[str]) -> Dict[str, Any
     p = Path(fichier)
     if not p.is_file():
         raise Indecidable(f"fichier introuvable : {p}")
-    if p.suffix.lower() not in EXTENSIONS:
+    if p.suffix.lower() in JOURNAUX:
+        if not zeek.est_zeek(p.read_bytes()):
+            raise Indecidable(f"{p.name} : ni CSV ni Excel, et pas un journal Zeek "
+                              f"(il ne commence pas par #separator)")
+    elif p.suffix.lower() not in EXTENSIONS:
         raise Indecidable(f"format non pris en charge : {p.suffix or '(aucun)'} "
-                          f"(attendu : {', '.join(sorted(EXTENSIONS))})")
+                          f"(attendu : {', '.join(sorted(EXTENSIONS))}, ou un journal Zeek .log / .log.gz)")
     declare = _charger_contrat(contrat)
     if declare is None and usage not in contract_infer.USAGES:
         raise Indecidable(f"usage inconnu : {usage!r} "
@@ -204,7 +210,13 @@ def main(argv: Optional[List[str]] = None) -> int:
     # à faire dans la sortie d'une barrière.
     for flux in (sys.stdout, sys.stderr):
         if hasattr(flux, "reconfigure"):
-            flux.reconfigure(errors="replace")
+            # Vers un fichier ou un tube, c'est une machine qui lit : UTF-8,
+            # partout. Vers une console, on garde son encodage. (Sous Windows,
+            # une sortie redirigée partait en cp1252 et le JSON ne se relisait pas.)
+            if flux.isatty():
+                flux.reconfigure(errors="replace")
+            else:
+                flux.reconfigure(encoding="utf-8", errors="replace")
     warnings.simplefilter("ignore")
     j = sous.add_parser("join", help="ces deux fichiers sont-ils joignables ?")
     j.add_argument("gauche", help="le fichier dont on veut garder toutes les lignes")

@@ -14,7 +14,7 @@ la liste de ce qu'elle n'a pas pu faire.
 ![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-green.svg)
 ![Next.js](https://img.shields.io/badge/Next.js-16+-black.svg)
-![tests](https://img.shields.io/badge/tests-234-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-254-brightgreen.svg)
 
 ---
 
@@ -319,7 +319,7 @@ uvicorn app.main:app --reload          # http://localhost:8000/docs
 # Frontend
 cd frontend && npm install && npm run dev   # http://localhost:3000
 
-# Tests — 234 (dont 1 sauté), sans réseau et sans clé
+# Tests — 254 (dont 1 sauté), sans réseau et sans clé
 cd backend && python -m pytest tests/ -q
 ```
 
@@ -376,6 +376,44 @@ fausses :
 | `Time` = `06:55:46` devenait `2026-11-15 06:55:46` : **la date du jour de l'exécution**, dans un journal d'authentification | l'heure reste une heure ; une valeur n'est une date que si elle en porte une |
 | `history` de Zeek passait de **119 à 102 valeurs** : `ShADTdtr` fusionné avec `ShADTdtR`, alors que la majuscule désigne l'initiateur du paquet | aucune fusion dans une colonne de codes, et le refus est consigné |
 | `01/03/2024` lu comme le 3 janvier | l'ordre jour/mois se lit dans la colonne (`15/03` le prouve) ; s'il est indécidable, la colonne n'est pas convertie |
+
+### Un journal Zeek déclare son contrat : on le lit, on ne le devine pas
+
+```bash
+python -m app.cli check conn.log.gz --usage base
+```
+
+Un journal Zeek n'est pas un CSV : c'est un texte tabulé qui s'ouvre sur
+`#fields` et `#types`, le nom et le **type déclaré** de chaque colonne. Partout
+ailleurs le contrat est inféré ; ici il est **traduit** de la déclaration du
+fichier, et la passe vérifie le journal contre ce qu'il dit de lui-même.
+
+| type Zeek | ce que le contrat exige |
+|---|---|
+| `port` | entier dans 0–65535 — et non plus « 65534 hors de l'intervalle plausible », ce que disait l'écart interquartile |
+| `addr` | forme `ip` : IPv4 ou IPv6, vérifiée contre la bibliothèque standard |
+| `count`, `interval`, `time` | nombre positif ; l'horodatage garde ses six décimales |
+| `string`, `enum` | texte dont **la casse est significative** : aucune fusion |
+| `#unset_field` | le seul marqueur de vide reconnu, celui que le fichier déclare |
+
+Mesuré sur le journal public complet : **1 021 950 connexions, 122 Mo, en 87 s**,
+contrat tenu, 198 groupes de codes `history` laissés intacts. Trois choses
+trouvées en chemin :
+
+- **l'ancienne forme IPv6 ne connaissait `::` qu'en tête ou en queue** :
+  `fe80::215:17ff:fe84:c13f`, l'adresse la plus banale d'un réseau local, était
+  déclarée invalide, donc vidée ;
+- **une valeur détruite ne faisait pas échouer le contrat** : un `beaucoup`
+  dans un compteur d'octets était mis à vide par la réparation, et tant que le
+  taux de vides restait sous son plafond le verdict était « tenu ». La
+  vérification compte maintenant les valeurs présentes en entrée et vides en
+  sortie, et c'est **bloquant** ;
+- **sous Windows, le verdict JSON redirigé vers un fichier n'était pas en
+  UTF-8** et ne se relisait pas.
+
+L'interface et l'API acceptent aussi `.log` et `.log.gz`, avec un plafond de
+25 Mo **après décompression** : soixante mégaoctets de zéros tiennent en
+soixante kilo-octets.
 
 ---
 

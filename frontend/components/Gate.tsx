@@ -20,7 +20,7 @@ import {
 } from './Illustrations';
 
 const MAX_MO = 25;
-const EXTENSIONS = ['.csv', '.xlsx', '.xls'];
+const EXTENSIONS = ['.csv', '.xlsx', '.xls', '.log', '.gz'];
 
 const USAGES: { cle: UsageKey; nom: string; regle: string; Icone: (p: { size?: number }) => React.ReactElement }[] = [
   { cle: 'base', nom: 'Charger en base', regle: '0 % inventé · 0 ligne perdue · clé exigée', Icone: IconDatabase },
@@ -70,7 +70,7 @@ export function Depot({ fichier, onFichier, onErreur }: {
 
   const choisir = useCallback((f: File) => {
     const ext = f.name.toLowerCase().slice(f.name.lastIndexOf('.'));
-    if (!EXTENSIONS.includes(ext)) return onErreur(`Format non pris en charge : ${ext}. Formats acceptés : CSV, XLSX, XLS.`);
+    if (!EXTENSIONS.includes(ext)) return onErreur(`Format non pris en charge : ${ext}. Formats acceptés : CSV, XLSX, XLS, ou un journal Zeek (.log, .log.gz).`);
     if (f.size > MAX_MO * 1024 * 1024)
       return onErreur(`Fichier de ${Math.round(f.size / 1048576)} Mo : la passe sous contrat accepte ${MAX_MO} Mo au plus (débit mesuré : 1,8 Mo/s).`);
     onFichier(f);
@@ -102,9 +102,9 @@ export function Depot({ fichier, onFichier, onErreur }: {
       onDrop={(e) => { e.preventDefault(); setSurvol(false); if (e.dataTransfer.files[0]) choisir(e.dataTransfer.files[0]); }}
     >
       <IconUpload size={30} />
-      <span className="drop-title">Déposez un fichier CSV ou Excel, ou cliquez pour le choisir</span>
-      <span className="drop-hint">CSV · XLSX · XLS — {MAX_MO} Mo au plus</span>
-      <input ref={input} type="file" accept=".csv,.xlsx,.xls" className="hidden"
+      <span className="drop-title">Déposez un fichier CSV, Excel ou un journal Zeek, ou cliquez pour le choisir</span>
+      <span className="drop-hint">CSV · XLSX · XLS · journal Zeek (.log, .log.gz) — {MAX_MO} Mo au plus</span>
+      <input ref={input} type="file" accept=".csv,.xlsx,.xls,.log,.gz" className="hidden"
              onChange={(e) => e.target.files?.[0] && choisir(e.target.files[0])} />
     </div>
   );
@@ -138,7 +138,10 @@ function ContratPropose({ p }: { p: Proposition }) {
                   {c.unique && !cle.has(c.nom) && <span className="tag">unique</span>}
                   {c.forme && <span className="tag">forme : {c.forme}</span>}
                   {c.domaine && <span className="tag">{c.domaine.length} valeurs permises</span>}
-                  {(c.minimum !== null || c.maximum !== null) && <span className="tag">plage {c.minimum ?? '…'} – {c.maximum ?? '…'}</span>}
+                  {c.minimum !== null && c.maximum !== null && <span className="tag">plage {c.minimum} – {c.maximum}</span>}
+                  {c.minimum !== null && c.maximum === null && <span className="tag">≥ {c.minimum}</span>}
+                  {c.minimum === null && c.maximum !== null && <span className="tag">≤ {c.maximum}</span>}
+                  {c.casse_significative && <span className="tag">casse significative</span>}
                 </td>
               </tr>
             ))}

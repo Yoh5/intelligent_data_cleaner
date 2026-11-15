@@ -32,7 +32,7 @@ from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
-from app.services import contract, contract_infer, reparer
+from app.services import contract, contract_infer, reparer, zeek
 from app.services.profiler import DataProfiler
 
 
@@ -68,7 +68,7 @@ def _parquet(df: pd.DataFrame) -> Optional[str]:
 
 
 def _script(contrat: contract.Contrat, journal: reparer.Journal,
-            filename: str) -> str:
+            filename: str, zeek: bool = False) -> str:
     """Le script qui rejoue la passe, contrat inclus en commentaire.
 
     Il importe `reparer` plutôt que de recopier les correctifs : un script qui
@@ -98,6 +98,7 @@ def _script(contrat: contract.Contrat, journal: reparer.Journal,
         "",
         "from app.services.contract import Contrat, verify",
         "from app.services.reparer import appliquer",
+        *(["from app.services import zeek"] if zeek else []),
         "",
         "CONTRAT = json.loads(r'''",
         __import__("json").dumps(contrat.to_dict(), ensure_ascii=False, indent=2),
@@ -105,7 +106,8 @@ def _script(contrat: contract.Contrat, journal: reparer.Journal,
         "",
         "",
         "def main(chemin):",
-        "    brut = pd.read_csv(chemin, dtype=str)",
+        ("    brut, _ = zeek.lire(open(chemin, 'rb').read())" if zeek
+         else "    brut = pd.read_csv(chemin, dtype=str)"),
         "    contrat = Contrat.from_dict(CONTRAT)",
         "    propre, journal = appliquer(brut, contrat)",
         "    rapport = verify(propre, contrat, origine=brut)",
@@ -142,15 +144,25 @@ def enonce(rapport: contract.Rapport, journal: reparer.Journal) -> Dict[str, Lis
 
 
 async def run(content: bytes, filename: str, usage: str = "modele",
-              contrat: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+              contrat: Optional[Dict[str, Any]] = None,
+              max_octets: Optional[int] = None) -> Dict[str, Any]:
     """Une passe complète. `contrat` permet de passer un contrat édité par
     l'utilisateur ; sans lui, il est inféré de l'usage déclaré."""
-    analyse, origine = await _profiler(content, filename)
-
-    if contrat is not None:
-        ct, notes = contract.Contrat.from_dict(contrat), []
+    journal_zeek = zeek.est_zeek(content)
+    if journal_zeek:
+        # Le journal déclare ses colonnes et leurs types : on lit sa
+        # déclaration au lieu d'inférer, et on ne passe pas par le profileur.
+        origine, entete = zeek.lire(content, max_octets)
+        if contrat is not None:
+            ct, notes = contract.Contrat.from_dict(contrat), []
+        else:
+            ct, notes = zeek.contrat(origine, entete, usage=usage)
     else:
-        ct, notes = contract_infer.inferer(analyse, origine, usage=usage)
+        analyse, origine = await _profiler(content, filename)
+        if contrat is not None:
+            ct, notes = contract.Contrat.from_dict(contrat), []
+        else:
+            ct, notes = contract_infer.inferer(analyse, origine, usage=usage)
 
     avant = contract.verify(origine, ct, origine=None)
     propre, journal = reparer.appliquer(origine, ct)
@@ -174,7 +186,7 @@ async def run(content: bytes, filename: str, usage: str = "modele",
         "csv_base64": base64.b64encode(
             propre.to_csv(index=False).encode()).decode(),
         "parquet_base64": _parquet(propre),
-        "script": _script(ct, journal, filename),
+        "script": _script(ct, journal, filename, zeek=journal_zeek),
         "message": _message(avant, apres, journal),
     }
 

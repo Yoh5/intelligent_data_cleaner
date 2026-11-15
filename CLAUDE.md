@@ -30,7 +30,7 @@ OPENAI_API_KEY=<key> docker-compose up --build
 ```bash
 cd backend
 pip install pandas numpy openpyxl fastapi "pydantic>=2" pydantic-settings python-multipart httpx openai pytest
-pytest tests/ -q   # 234 tests (1 skipped) : advisor, quality, agent_cleaner, contract, reparer, corpus, preparation, forme, excel, bout-en-bout
+pytest tests/ -q   # 254 tests (1 skipped) : advisor, quality, agent_cleaner, contract, reparer, corpus, preparation, forme, excel, bout-en-bout
 ```
 CI : `.github/workflows/tests.yml` (push/PR). La boucle agentique tourne 100 % offline (conseiller fail-open → rule-based).
 
@@ -181,8 +181,35 @@ while the output had fabricated or destroyed information. Locked in `tests/test_
 - A leading zero forbids the *numeric* reading, not the date reading: `est_un_code`
   was blocking `01/03/2024` from ever being tried as a date.
 
-Still open for direction B: Zeek's native TSV (it declares its own `#fields`/`#types`,
-so the contract can come from the file), ports judged by IQR instead of 0-65535.
+### Zeek native logs — `services/zeek.py`
+
+A Zeek log declares `#fields`, `#types` and `#unset_field`. `agent_contrat.run` and
+`/contract-clean/propose` branch on `zeek.est_zeek(content)` and **translate** that
+declaration (`zeek.contrat`) instead of inferring: `port` -> integer 0-65535, `addr` ->
+forme `ip`, `count`/`interval`/`time` -> non-negative number, text types ->
+`casse_significative=True`. Only nullability and the `uid` key are measured (uid is
+unique in conn.log, repeated in dns/http). Everything is read as text; only the
+declared unset marker becomes a void at load. `.log`/`.log.gz` accepted by CLI, API
+and UI. Measured: 1,021,950 rows / 122 MB in 87 s, held.
+
+Found on the way, all locked in `tests/test_zeek.py` / `test_cli.py`:
+
+- `FORMES["ipv6"]` only knew `::` at either end; rebuilt and checked against
+  `ipaddress`. `FORMES["ip"]` = v4 or v6.
+- **`valeurs_detruites` (blocking).** The repair voids what does not hold the declared
+  type/form and says so in its journal, but the verifier does not read the journal:
+  under the null ceiling, the contract was "held" on an amputated output. The verifier
+  now counts voids in output minus voids in its own equivalent base — removals and
+  imputations can only lower that count, so a rise is certain destruction (a lower
+  bound, no false positive). Skipped when `politique_aberrantes == "vider"`.
+- **Bounded decompression.** `zeek.lire(content, max_octets)`: the API passes 25 MB
+  (413 beyond), the CLI none. Never `gzip.decompress` an upload in one go.
+- **Redirected CLI output is UTF-8** (`isatty()` decides); on Windows the JSON verdict
+  written to a file was cp1252. Tests that set `PYTHONIOENCODING` cannot see this.
+
+Known limit: after load, the global `MARQUEURS_VIDES` list still applies to Zeek text
+columns (a literal `none` or `unknown` would be voided). No such cell exists in the
+1M-row sample; a per-contract marker list is the fix if it ever matters.
 
 ### Shape: what a value must look like — `contract.FORMES`
 

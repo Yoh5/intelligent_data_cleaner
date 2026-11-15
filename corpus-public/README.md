@@ -41,7 +41,7 @@ Quatre jeux réels, non versionnés eux non plus :
 |---|---|---|
 | `openssh.csv` | Loghub, `OpenSSH/OpenSSH_2k.log_structured.csv` | **une date inventée** : la colonne `Time` (`06:55:46`) sortait en `2026-11-15 06:55:46`, la date du jour de l'exécution |
 | `apache.csv`, `linux.csv` | Loghub, `Apache/` et `Linux/`, mêmes fichiers `_2k.log_structured.csv` | rien de plus — ils servent de témoins |
-| `zeek-conn.log.gz` | brimdata/zed-sample-data, `zeek-default/conn.log.gz` (1 021 951 connexions) | le format natif de Zeek, que l'outil ne lit pas encore |
+| `zeek-conn.log.gz` | brimdata/zed-sample-data, `zeek-default/conn.log.gz` (1 021 951 connexions) | le format natif de Zeek, lu depuis le 15/11 : 122 Mo décompressés, contrat tenu en 87 s. A montré que la forme IPv6 rejetait `fe80::215:17ff:fe84:c13f` |
 | `zeek-conn-20k.csv` | les 20 000 premières lignes du précédent, converties en CSV | **des codes détruits** : `history` passait de 119 à 102 valeurs, fusionnées « par la casse » alors que la majuscule y désigne l'initiateur du paquet |
 
 Loghub : `https://raw.githubusercontent.com/logpai/loghub/master/<Jeu>/<Jeu>_2k.log_structured.csv`.

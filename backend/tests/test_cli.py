@@ -109,3 +109,20 @@ def test_un_contrat_enregistre_est_reapplique(avec_cle, sans_cle, tmp_path):
     r = idc("check", str(sans_cle), "--contrat", str(contrat))
     assert r.returncode == 1
     assert "id" in r.stdout
+
+
+def test_la_sortie_redirigee_est_en_utf8_quel_que_soit_le_systeme(sans_cle):
+    # Trouvé en redirigeant le verdict d'un journal d'un million de lignes vers
+    # un fichier, sous Windows : la sortie partait dans l'encodage de la
+    # console (cp1252) et le JSON ne se relisait pas. Les autres tests ne le
+    # voyaient pas : ils forcent PYTHONIOENCODING. Une sortie lue par une
+    # machine est en UTF-8, partout.
+    env = {k: v for k, v in os.environ.items() if k not in ("PYTHONIOENCODING", "PYTHONUTF8")}
+    env["PYTHONPATH"] = str(BACKEND)
+    r = subprocess.run([sys.executable, "-m", "app.cli", "check", str(sans_cle), "--usage", "base", "--json"],
+                       cwd=BACKEND, env=env, capture_output=True, timeout=120)
+    d = json.loads(r.stdout.decode("utf-8"))        # décodage strict
+    assert "clé" in d["violations"][0]["message"]
+    r = subprocess.run([sys.executable, "-m", "app.cli", "check", str(sans_cle), "--usage", "base"],
+                       cwd=BACKEND, env=env, capture_output=True, timeout=120)
+    assert "clé" in r.stdout.decode("utf-8")
