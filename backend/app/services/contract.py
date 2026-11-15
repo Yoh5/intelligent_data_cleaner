@@ -469,31 +469,55 @@ def lire_dates(s: pd.Series, format_date: Optional[str] = None) -> pd.Series:
     # pas : une colonne à 95 % ISO et 5 % `jj/mm/aaaa` perdait ses 5 %, et
     # finissait déclarée texte (trouvé par le banc de mesure, 16/11/2026).
     import warnings
-    iso = plein.str.match(r"^\s*\d{4}-\d{1,2}-\d{1,2}")
-    chiffree_lisible = est_chiffree & porte & ~iso
-    reste = porte & ~iso & ~chiffree_lisible
-    conv = pd.Series(pd.NaT, index=s.index, dtype="datetime64[ns]")
+    # Masques en tableaux numpy simples : sous pandas 3, `str.match` rend un
+    # booléen « nullable » qui n'est plus accepté comme clé d'affectation
+    # (InvalidIndexError — vu en reproduisant la CI, 16/11/2026).
+    def _b(x) -> np.ndarray:
+        return np.asarray(pd.Series(x, index=s.index).fillna(False), dtype=bool)
+
+    iso = _b(plein.str.match(r"^\s*\d{4}-\d{1,2}-\d{1,2}"))
+    p_ = _b(porte)
+    chiffree_lisible = _b(est_chiffree) & p_ & ~iso
+    reste = p_ & ~iso & ~chiffree_lisible
+    # Un tableau numpy, emballé à la fin : sous pandas 3, une série créée
+    # depuis une valeur unique est en lecture seule.
+    out = np.full(len(s), np.datetime64("NaT", "ns"), dtype="datetime64[ns]")
+
+    def _ns(x) -> np.ndarray:
+        """En nanosecondes ; hors de cette plage -> vide. pandas 2 le faisait
+        seul ; pandas 3 lit aussi l'an 1200, et la conversion débordait."""
+        x = pd.Series(x)
+        try:
+            return x.to_numpy(dtype="datetime64[ns]")
+        except (OverflowError, ValueError):
+            x = x.where((x >= pd.Timestamp.min) & (x <= pd.Timestamp.max))
+            return x.astype("datetime64[ns]").to_numpy()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         if iso.any():
-            conv[iso] = pd.to_datetime(texte[iso].str.strip(), errors="coerce", format="ISO8601")
+            out[iso] = _ns(pd.to_datetime(texte[iso].astype(str).str.strip(), errors="coerce",
+                                           format="ISO8601"))
         if chiffree_lisible.any():
-            a = chiffree[0][chiffree_lisible].astype(int)
-            b = chiffree[1][chiffree_lisible].astype(int)
-            an = chiffree[2][chiffree_lisible]
-            longue = an.str.len() == 4
+            a = chiffree[0][chiffree_lisible].astype(int).to_numpy()
+            b = chiffree[1][chiffree_lisible].astype(int).to_numpy()
+            an = chiffree[2][chiffree_lisible].astype(str)
+            longue = (an.str.len() == 4).to_numpy()
             jour, mois = (a, b) if jour_dabord else (b, a)
             composees = pd.to_datetime(
-                pd.DataFrame({"year": an.where(longue, "0").astype(int), "month": mois, "day": jour}),
+                pd.DataFrame({"year": np.where(longue, an.to_numpy(), "0").astype(int),
+                              "month": mois, "day": jour}),
                 errors="coerce")
-            conv[chiffree_lisible] = composees.where(longue)
+            out[chiffree_lisible] = _ns(composees.where(longue))
             # Une année sur deux chiffres : on laisse l'analyseur trancher, comme avant.
             courte = chiffree_lisible.copy()
             courte[chiffree_lisible] = ~longue
             if courte.any():
-                conv[courte] = pd.to_datetime(texte[courte], errors="coerce", dayfirst=jour_dabord)
+                out[courte] = _ns(pd.to_datetime(texte[courte], errors="coerce",
+                                             dayfirst=jour_dabord))
         if reste.any():
-            conv[reste] = pd.to_datetime(texte[reste], errors="coerce", dayfirst=jour_dabord)
+            out[reste] = _ns(pd.to_datetime(texte[reste], errors="coerce",
+                                        dayfirst=jour_dabord))
+    conv = pd.Series(out, index=s.index)
     return conv.where(porte)
 
 

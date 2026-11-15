@@ -66,7 +66,9 @@ def canonique(valeur: Optional[str], role: str) -> Optional[str]:
 
 
 def _verite(valeur: Optional[str], role: str) -> Optional[str]:
-    if valeur is None:
+    # Selon la version de pandas, une case vidée par `None` dans une colonne
+    # objet ressort `None` ou `NaN` (la CI, en pandas 3, rendait « nan »).
+    if valeur is None or (isinstance(valeur, float) and math.isnan(valeur)):
         return None
     if role == "nombre":
         return repr(float(valeur))

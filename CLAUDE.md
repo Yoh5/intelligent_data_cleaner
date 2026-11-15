@@ -283,6 +283,12 @@ It found two defects in the contract pass on its first run, both fixed:
 - **imputation under 5 % was silent** — `SEUIL_INDICATRICE` is now 0: an indicator
   column as soon as one value is filled.
 
+**The CI installs the latest pandas (3.x), local is 2.x.** The date fix first went red
+on CI only: under pandas 3, `str.match` returns a nullable boolean that is no longer a
+valid setitem key, a Series built from a scalar is read-only, and `to_datetime` accepts
+year 1200 then overflows on the ns cast. Before pushing anything that touches pandas
+masks or dtypes, run the suite in a throwaway venv with the CI's install line.
+
 **I wrote both the tool and the bench.** 100 % means "none of the defects I thought
 of survives", not "it cleans everything". Extend the defect catalogue before quoting it.
 
