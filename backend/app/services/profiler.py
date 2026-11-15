@@ -184,7 +184,11 @@ class DataProfiler:
         if pd.api.types.is_numeric_dtype(series):
             return "numeric"
 
-        if series.dtype == "object":
+        # `object` sous pandas 2, `str` sous pandas 3 : le texte a changé de
+        # type par défaut. Tester `dtype == "object"` seul désactivait, sur toute
+        # installation neuve, la détection des nombres et des dates stockés en
+        # texte — sans erreur, juste des colonnes classées « text ».
+        if series.dtype == "object" or pd.api.types.is_string_dtype(series):
             sample = series.dropna().head(100)
             if len(sample) > 0:
                 converted = pd.to_numeric(
