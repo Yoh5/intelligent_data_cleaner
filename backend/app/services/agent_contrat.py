@@ -81,6 +81,12 @@ def _script(contrat: contract.Contrat, journal: reparer.Journal,
         f"Source : {filename}",
         f"Usage déclaré : {contrat.usage or 'non précisé'}",
         "",
+        "Exécution : ce script réutilise les réparations et la vérification du",
+        "dépôt intelligent_data_cleaner au lieu de les recopier (une copie",
+        "dériverait à la première correction). Depuis la racine du dépôt :",
+        "    PYTHONPATH=backend python ce_script.py fichier.csv",
+        "Il écrit propre.parquet et affiche si le contrat est tenu.",
+        "",
         "Ce que la passe a refusé de faire :",
     ]
     lignes += [f"  - {g.colonne or 'global'} : {g.detail}"

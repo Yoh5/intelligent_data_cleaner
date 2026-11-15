@@ -657,6 +657,7 @@ def inferer(analysis: Dict[str, Any], df: pd.DataFrame,
         lignes_perdues_max=float(reglage["lignes_perdues_max"]),
         imputation_max=budget,
         usage=usage,
+        cle_exigee=bool(reglage["exige_cle"]),
     )
 
     if cands:

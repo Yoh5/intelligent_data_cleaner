@@ -262,12 +262,15 @@ function Rapport({ r, fichier }: { r: PassageContrat; fichier: File }) {
           <IconDownload size={16} /> Parquet typé
         </button>
         <button className="btn" onClick={() => telecharger(r.script, `contrat_${base}.py`, 'text/x-python')}>
-          <IconDownload size={16} /> Script rejouable (.py)
+          <IconDownload size={16} /> Script de rejeu (.py)
         </button>
         <button className="btn" onClick={() => telecharger(JSON.stringify(r.contrat, null, 2), `contrat_${base}.json`, 'application/json')}>
           <IconDownload size={16} /> Contrat (JSON)
         </button>
       </div>
+      <p className="meta" style={{ marginTop: '0.6rem' }}>
+        Le script de rejeu s&apos;exécute depuis le dépôt : <code>PYTHONPATH=backend python contrat_{base}.py {fichier.name}</code>
+      </p>
     </>
   );
 }

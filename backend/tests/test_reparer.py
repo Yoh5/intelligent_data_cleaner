@@ -486,3 +486,98 @@ def test_un_fichier_reel_a_colonnes_booleennes_passe():
         pytest.skip("fichier absent")
     r = asyncio.run(agent_contrat.run(f.read_bytes(), f.name, usage="modele"))
     assert r["contrat_tenu"], r["enonce"]["non_garanti"]
+
+
+# --------------------------------------------------------------------------- #
+# Le vérificateur accusait la réparation de pertes qu'elle n'avait pas faites
+# (trouvé le 15/11/2026 en testant la nouvelle interface sur un fichier de
+# ventes, usage « charger en base »). Deux lignes qui ne diffèrent que par la
+# casse (« rabat » / « Rabat ») ou par un marqueur de vide (« N/A » / vide)
+# deviennent des doublons francs une fois réparées, et la réparation les retire
+# à bon droit. Le vérificateur comptait les doublons sur le fichier BRUT, n'en
+# voyait pas autant, et concluait à des « lignes perdues » ; puis la baisse du
+# taux de vides due à ces retraits se lisait comme des « imputations ». Score
+# 82 -> 61, contrat « non tenu », sans qu'aucune valeur n'ait été inventée.
+# --------------------------------------------------------------------------- #
+
+def _ventes_quasi_doublons() -> bytes:
+    lignes = ["client,ville,montant"]
+    for i in range(40):
+        lignes.append(f"C{i:03d},Rabat,{100 + i}")
+    # quasi-doublons : même ligne, à la casse et au marqueur de vide près
+    lignes += ["C001,rabat,101", "C002, Rabat ,102", "C050,Fes,", "C050,Fes,N/A",
+               "C051,Fes,n/a", "C051,FES,"]
+    return ("\n".join(lignes) + "\n").encode()
+
+
+def test_quasi_doublons_ne_sont_ni_des_pertes_ni_des_imputations():
+    res = asyncio.run(agent_contrat.run(_ventes_quasi_doublons(), "v.csv", usage="base"))
+    codes = [v["code"] for v in res["rapport"]["violations"]]
+    assert "lignes_perdues" not in codes, res["enonce"]["non_garanti"]
+    assert "imputation_excessive" not in codes, res["enonce"]["non_garanti"]
+
+
+def test_une_vraie_perte_de_ligne_reste_detectee():
+    # Contre-épreuve : la correction ne doit pas rendre le contrôle aveugle.
+    origine = pd.DataFrame({"id": [1, 2, 3, 4], "v": ["a", "b", "c", "d"]})
+    propre = origine.iloc[:3].reset_index(drop=True)
+    ct = C.Contrat(colonnes=[C.ContratColonne("id", "integer"),
+                             C.ContratColonne("v", "string")],
+                   lignes_perdues_max=0.0)
+    r = C.verify(propre, ct, origine=origine)
+    assert any(v.code == "lignes_perdues" for v in r.violations)
+
+
+def test_une_vraie_imputation_reste_detectee():
+    origine = pd.DataFrame({"id": [1, 2, 3, 4], "v": ["a", None, None, "d"]})
+    propre = origine.fillna({"v": "a"})
+    ct = C.Contrat(colonnes=[C.ContratColonne("id", "integer"),
+                             C.ContratColonne("v", "string", taux_nul_max=1.0)],
+                   imputation_max=0.0)
+    r = C.verify(propre, ct, origine=origine)
+    assert any(v.code == "imputation_excessive" for v in r.violations)
+
+
+# Un usage qui exige une clé (charger en base, joindre) ne peut pas être
+# déclaré « tenu » sur un fichier qui n'en a aucune : l'inférence l'écrivait
+# dans ses arbitrages, mais le verdict disait « le fichier peut entrer ».
+
+def test_usage_qui_exige_une_cle_sans_cle_nest_pas_tenu():
+    res = asyncio.run(agent_contrat.run(_ventes_quasi_doublons(), "v.csv", usage="base"))
+    assert res["contrat"]["cle_primaire"] == []
+    assert res["contrat"]["cle_exigee"] is True
+    assert res["contrat_tenu"] is False
+    codes = [v["code"] for v in res["rapport"]["violations"]]
+    assert codes == ["cle_absente"]
+    assert res["score_apres"] <= C.PLAFOND_BLOQUANT
+
+
+def test_usage_sans_exigence_de_cle_reste_tenu_sans_cle():
+    res = asyncio.run(agent_contrat.run(_ventes_quasi_doublons(), "v.csv", usage="modele"))
+    assert res["contrat"]["cle_exigee"] is False
+    assert res["contrat_tenu"] is True
+
+
+def test_un_contrat_ancien_sans_le_champ_se_relit():
+    # Un contrat JSON écrit avant l'ajout du champ doit rester lisible.
+    d = C.Contrat(colonnes=[C.ContratColonne("id", "integer")]).to_dict()
+    d.pop("cle_exigee")
+    assert C.Contrat.from_dict(d).cle_exigee is False
+
+
+def test_le_script_genere_rejoue_la_passe(tmp_path):
+    # Le script téléchargé depuis l'interface doit réellement tourner : on
+    # l'exécute, avec le dépôt dans le PYTHONPATH comme l'indique sa notice.
+    import os, subprocess, sys
+    from pathlib import Path
+    contenu = _ventes_quasi_doublons()
+    res = asyncio.run(agent_contrat.run(contenu, "v.csv", usage="modele"))
+    assert "PYTHONPATH=backend" in res["script"]
+    (tmp_path / "v.csv").write_bytes(contenu)
+    (tmp_path / "rejeu.py").write_text(res["script"], encoding="utf-8")
+    env = dict(os.environ, PYTHONPATH=str(Path(__file__).resolve().parents[1]))
+    sortie = subprocess.run([sys.executable, "rejeu.py", "v.csv"], cwd=tmp_path, env=env,
+                            capture_output=True, text=True, timeout=120)
+    assert sortie.returncode == 0, sortie.stderr[-800:]
+    assert "contrat tenu : True" in sortie.stdout
+    assert (tmp_path / "propre.parquet").exists()

@@ -14,7 +14,7 @@ la liste de ce qu'elle n'a pas pu faire.
 ![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-green.svg)
 ![Next.js](https://img.shields.io/badge/Next.js-16+-black.svg)
-![tests](https://img.shields.io/badge/tests-173-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-192-brightgreen.svg)
 
 ---
 
@@ -258,7 +258,7 @@ uvicorn app.main:app --reload          # http://localhost:8000/docs
 # Frontend
 cd frontend && npm install && npm run dev   # http://localhost:3000
 
-# Tests — 173, sans réseau et sans clé
+# Tests — 192 (dont 1 sauté), sans réseau et sans clé
 cd backend && python -m pytest tests/ -q
 ```
 

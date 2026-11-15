@@ -113,12 +113,13 @@ FORMES: Dict[str, str] = {
 #: qui rend impossible le 100/100 observé sur des données inutilisables.
 BLOQUANTES = frozenset({
     "colonne_absente", "type_inconvertible", "cle_non_unique",
-    "marqueur_vide_en_valeur", "colonne_supprimee",
+    "marqueur_vide_en_valeur", "colonne_supprimee", "cle_absente",
 })
 PLAFOND_BLOQUANT = 55
 
 POIDS = {
     "colonne_absente": 25, "type_inconvertible": 20, "cle_non_unique": 20,
+    "cle_absente": 20,
     "marqueur_vide_en_valeur": 15, "colonne_supprimee": 20,
     "doublons_lignes": 12, "taux_nul_depasse": 10, "imputation_excessive": 12,
     "masse_ponctuelle": 12, "lignes_perdues": 15, "hors_domaine": 8,
@@ -197,6 +198,11 @@ class Contrat:
     #: Colonnes hors contrat : tolérées (on ne connaît pas tout) mais listées.
     colonnes_inattendues_interdites: bool = False
     usage: str = ""
+    #: L'usage exige-t-il une clé ? Porté par le contrat lui-même, pour que la
+    #: vérification le contrôle sans consulter l'inférence (la dépendance ne va
+    #: que dans un sens). Sans lui, un fichier sans aucune clé était déclaré
+    #: « tenu » pour un chargement en base.
+    cle_exigee: bool = False
 
     def par_nom(self) -> Dict[str, ContratColonne]:
         return {c.nom: c for c in self.colonnes}
@@ -558,6 +564,13 @@ def verify(df: pd.DataFrame, contrat: Contrat,
                     "colonne_inattendue", nom, f"« {nom} » n'est pas au contrat"))
 
     # 8. Clé primaire, éventuellement composite
+    if contrat.cle_exigee and not contrat.cle_primaire:
+        r.violations.append(Violation(
+            "cle_absente", None,
+            "l'usage exige une clé, et aucune colonne n'identifie une ligne de "
+            "façon unique : un chargement incrémental ou une jointure "
+            "dupliquerait des lignes sans le signaler — désignez une clé, "
+            "éventuellement composite"))
     if contrat.cle_primaire:
         manquantes = [c for c in contrat.cle_primaire if c not in df.columns]
         if manquantes:
@@ -599,6 +612,33 @@ def verify(df: pd.DataFrame, contrat: Contrat,
     return r
 
 
+def _base_equivalente(origine: pd.DataFrame) -> pd.DataFrame:
+    """L'entrée, un exemplaire par ligne au sens du vérificateur.
+
+    Deux lignes sont équivalentes si elles ne diffèrent que par des espaces en
+    bordure, la casse, ou la façon d'écrire « vide » (marqueur ou cellule
+    vide). Les marqueurs deviennent de vrais vides dans la base rendue, pour
+    que les taux de vides comparés avant/après mesurent la même chose.
+
+    La clé de comparaison est en minuscules, mais la base garde les valeurs
+    d'origine : seule l'identité des lignes change, pas leur contenu.
+    """
+    vue = origine.copy()
+    cle = pd.DataFrame(index=origine.index)
+    for nom in origine.columns:
+        s = origine[nom]
+        if (pd.api.types.is_numeric_dtype(s) or pd.api.types.is_bool_dtype(s)
+                or pd.api.types.is_datetime64_any_dtype(s)):
+            cle[nom] = s
+            continue
+        texte = s.where(s.isna(), s.astype(str))
+        vide = texte.notna() & est_vide(texte.fillna(""))
+        vue[nom] = s.mask(vide)
+        cle[nom] = texte.str.strip().str.lower().mask(vide)
+    garder = ~cle.duplicated()
+    return vue[garder].reset_index(drop=True)
+
+
 def _perte_information(df: pd.DataFrame, origine: pd.DataFrame,
                        contrat: Contrat, r: Rapport) -> None:
     """Ce que le nettoyage a coûté — le contrôle que l'ancien score n'avait pas.
@@ -626,7 +666,16 @@ def _perte_information(df: pd.DataFrame, origine: pd.DataFrame,
       s'arme donc que là où des vides ont effectivement été comblés.
     """
     n_av, n_ap = len(origine), len(df)
-    francs = int(origine.duplicated().sum())
+    # Troisième piège, trouvé le 15/11/2026 : compter les doublons sur le
+    # fichier BRUT. « rabat » et « Rabat », « N/A » et une cellule vide font
+    # deux lignes différentes à l'octet près et une seule une fois réparées ;
+    # la réparation les fusionne à bon droit, et le contrôle comptait ces
+    # retraits comme des pertes, puis la baisse du taux de vides qui en
+    # résulte comme des imputations. On compare donc à la base que le
+    # vérificateur construit LUI-MÊME selon sa propre équivalence de lignes
+    # (espaces, casse, marqueurs de vide) — sans rien demander au nettoyeur.
+    base = _base_equivalente(origine)
+    francs = n_av - len(base)
     perdues = max(0, n_av - francs - n_ap)
     if n_av and perdues / n_av > contrat.lignes_perdues_max + 1e-9:
         r.violations.append(Violation(
@@ -651,7 +700,7 @@ def _perte_information(df: pd.DataFrame, origine: pd.DataFrame,
                   else contrat.imputation_max)
 
         # Taux et non comptes : voir le premier piège du docstring.
-        comble = max(0.0, float(origine[nom].isna().mean())
+        comble = max(0.0, float(base[nom].isna().mean())
                      - float(df[nom].isna().mean()))
         if comble > budget + 1e-9:
             r.violations.append(Violation(

@@ -30,7 +30,7 @@ OPENAI_API_KEY=<key> docker-compose up --build
 ```bash
 cd backend
 pip install pandas numpy openpyxl fastapi "pydantic>=2" pydantic-settings python-multipart httpx openai pytest
-pytest tests/ -q   # 185 tests : advisor, quality, agent_cleaner, contract, reparer, corpus, preparation, forme, excel, bout-en-bout
+pytest tests/ -q   # 192 tests (1 skipped) : advisor, quality, agent_cleaner, contract, reparer, corpus, preparation, forme, excel, bout-en-bout
 ```
 CI : `.github/workflows/tests.yml` (push/PR). La boucle agentique tourne 100 % offline (conseiller fail-open → rule-based).
 
@@ -114,6 +114,26 @@ covered by tests:
   boolean type **only if the column holds it entirely**, and falls back to
   `string` with examples otherwise. *Mixed* does not mean *86% numeric*; it
   means the column holds codes, and a code is not a quantity.
+
+### Two verifier defects found through the UI (15/11/2026)
+
+- **Near-duplicates read as losses.** `_perte_information` counted franc duplicates
+  on the RAW file. Rows differing only by case (`rabat`/`Rabat`), edge spaces or a
+  void marker (`N/A`/empty) become identical once repaired and are rightly dropped;
+  the verifier called them "lost rows", then read the resulting fall of the void
+  rate as "imputations" (82 -> 61, contract "not held", nothing invented). It now
+  compares against `_base_equivalente(origine)`, built with the **verifier's own**
+  row equivalence (strip, casefold, markers -> void) — still without consulting
+  the cleaner. Counter-tests keep a real row loss and a real imputation detected.
+- **A key-requiring usage was "held" with no key.** `Contrat.cle_exigee` now carries
+  the usage's key requirement (set by `contract_infer`, default False so older
+  contract JSON still loads), and `verify` raises the blocking `cle_absente`. On the
+  public corpus, UCI Adult and US Cities are now *not* loadable as-is (no unique
+  column), which is the truth.
+
+The downloadable contract script **imports** `app.services` on purpose (a copy
+would drift); its header says how to run it (`PYTHONPATH=backend`), and
+`test_le_script_genere_rejoue_la_passe` executes it for real.
 
 ### Shape: what a value must look like — `contract.FORMES`
 
