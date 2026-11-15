@@ -223,6 +223,29 @@ la première est celle qui protège :
 
 ---
 
+## L'interface
+
+Une page, organisée autour de la question qu'on se pose avant un chargement :
+**ce fichier peut-il entrer en base, et qu'a-t-on refusé d'inventer ?**
+On dépose le fichier, on déclare l'usage (charger en base, joindre, entraîner
+un modèle, alimenter un tableau de bord), on lit le contrat proposé et ses
+arbitrages **avant** que rien ne change, puis on lance la passe.
+
+![Accueil : le fichier, l'usage, le contrat](docs/interface-accueil.png)
+
+Le rapport sépare trois choses que les nettoyeurs mélangent : ce qui est
+**garanti** (vérifié sur les données), ce qui **ne l'est pas** (les violations),
+et ce qui a été **refusé exprès** (les réparations qui auraient inventé des
+valeurs). Le refus est en ambre, pas en rouge : ce n'est pas une erreur, c'est
+une décision.
+
+![Le rapport : garanti, non garanti, refusé exprès](docs/interface-rapport.png)
+
+Le nettoyage colonne par colonne, avec choix de stratégie et script rejouable,
+reste disponible dans un second onglet.
+
+---
+
 ## Lancer
 
 ```bash

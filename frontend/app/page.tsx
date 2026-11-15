@@ -5,6 +5,8 @@ import { FileUpload } from '@/components/FileUpload';
 import { AnalysisResult } from '@/components/AnalysisResult';
 import { CodeExport } from '@/components/CodeExport';
 import { checkBackendHealth } from '@/lib/api';
+import { Gate } from '@/components/Gate';
+import { HeroArt, IconDatabase } from '@/components/Illustrations';
 
 type AppState = 'idle' | 'analysis' | 'autopilot';
 
@@ -24,6 +26,7 @@ export default function Home() {
   const [originalFile, setOriginalFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [backendOffline, setBackendOffline] = useState(false);
+  const [detaille, setDetaille] = useState(false);
 
   // Health check on mount
   useEffect(() => {
@@ -67,21 +70,45 @@ export default function Home() {
       )}
 
       <div className="wrap">
-        <div className="topbar">
-          <span className="topbar-name">Intelligent Data Cleaner</span>
-          <span className="meta">{backendOffline ? 'serveur hors ligne' : 'prêt'}</span>
+        <header className="topbar">
+          <span className="brand">
+            <IconDatabase size={20} />
+            <span className="topbar-name">Intelligent Data Cleaner</span>
+          </span>
+          <span className="meta">
+            <span className={`status-dot ${backendOffline ? 'status-dot--off' : ''}`} aria-hidden="true" />
+            {backendOffline ? 'serveur hors ligne' : 'serveur prêt'}
+          </span>
+        </header>
+
+        <section className="hero">
+          <div>
+            <p className="eyebrow">Contrôle avant chargement</p>
+            <h1 className="title" style={{ marginTop: '0.7rem' }}>
+              Ce fichier peut-il entrer en base&nbsp;? Et qu&apos;a-t-on refusé d&apos;inventer&nbsp;?
+            </h1>
+            <p className="lede" style={{ marginTop: '1rem' }}>
+              Déclarez ce que vous allez faire des données. L&apos;outil en déduit un contrat, répare
+              dans ce sens, puis vérifie le résultat sans consulter le nettoyeur. Le rapport dit ce
+              qui est garanti, ce qui ne l&apos;est pas, et ce qui a été refusé exprès.
+            </p>
+          </div>
+          <div className="hero-art"><HeroArt /></div>
+        </section>
+
+        <div className="flex items-center gap-4 flex-wrap" style={{ marginBottom: '1.5rem' }}>
+          <button className={`btn ${!detaille ? 'btn--primary' : ''}`} onClick={() => setDetaille(false)} aria-pressed={!detaille}>
+            Contrôle sous contrat
+          </button>
+          <button className={`btn ${detaille ? 'btn--primary' : ''}`} onClick={() => setDetaille(true)} aria-pressed={detaille}>
+            Nettoyage colonne par colonne
+          </button>
+          <span className="meta">{detaille ? 'vous choisissez chaque stratégie, et repartez avec le script' : 'recommandé : le rapport vérifié indépendamment'}</span>
         </div>
 
-        <div style={{ padding: '2.6rem 0 2.4rem' }}>
-          <h1 className="title">Ce qui ne va pas dans vos données, colonne par colonne.</h1>
-          <p className="lede" style={{ marginTop: '0.6rem' }}>
-            Déposez un CSV ou un Excel. Vous décidez quoi faire de chaque défaut, et vous
-            repartez avec le fichier nettoyé et le script Python qui l&apos;a nettoyé —
-            lisible, et rejouable sans cette application.
-          </p>
-        </div>
+        {!detaille && <Gate />}
 
-        {appState === 'idle' && (
+        {detaille && appState === 'idle' && (
           <div style={{ maxWidth: '34rem' }}>
             <FileUpload
               onAnalysisComplete={handleAnalysisComplete}
@@ -103,7 +130,7 @@ export default function Home() {
           </div>
         )}
 
-        {appState === 'analysis' && analysis && (
+        {detaille && appState === 'analysis' && analysis && (
           <div>
             <button onClick={reset} className="btn btn--quiet mb-6">
               analyser un autre fichier
@@ -120,7 +147,7 @@ export default function Home() {
           </div>
         )}
 
-        {appState === 'autopilot' && autopilotResult && (
+        {detaille && appState === 'autopilot' && autopilotResult && (
           <div>
             <button onClick={reset} className="btn btn--quiet mb-6">
               analyser un autre fichier
@@ -151,6 +178,11 @@ export default function Home() {
             )}
           </div>
         )}
+        <footer className="foot">
+          Le contrat est vérifié par un module qui ne lit que les données, jamais l&apos;avis du nettoyeur.
+          Code source et mesures :{' '}
+          <a href="https://github.com/Yoh5/intelligent_data_cleaner">github.com/Yoh5/intelligent_data_cleaner</a>
+        </footer>
       </div>
     </main>
   );

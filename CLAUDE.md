@@ -320,7 +320,20 @@ to report.
 
 ### Frontend (`frontend/`)
 
-Next.js 14 App Router with TypeScript and Tailwind CSS. Single page at `app/page.tsx`.
+Next.js App Router with TypeScript and Tailwind CSS. Single page at `app/page.tsx`, two tabs.
+
+**Default tab — contract gate (`components/Gate.tsx`)**, redesigned 15/11/2026 around
+the question "can this file enter the database, and what was refused?": file →
+usage (base / jointure / modele / tableau) → `POST /contract-clean/propose` (contract
+table + `arbitrages`, nothing changed yet) → `POST /contract-clean/` (verdict, KPIs,
+three ledgers garanti / non garanti / refusé exprès, downloads CSV / Parquet / .py /
+contract JSON) → optional `POST /prepare/`. Visual language = audit report: IBM Plex
+Sans + Mono, registry navy `--stamp`, and three state colours reserved for states only
+(`--ok` green, `--danger` red, `--hold` amber — a refusal is a decision, not an error,
+so it is never red). Every state also carries an icon and a word. Icons and the hero
+diagram are inline SVG in `components/Illustrations.tsx` (currentColor, no emoji).
+
+**Second tab — column-by-column cleaning** (the original flow below):
 
 **Component flow:**
 1. `FileUpload` — drag-and-drop or click to upload; calls `POST /analyze/`

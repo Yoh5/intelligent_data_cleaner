@@ -3,61 +3,66 @@
 @tailwind utilities;
 
 /* ═══════════════════════════════════════════════════════════════════════
-   Intelligent Data Cleaner
+   Intelligent Data Cleaner — une barrière avant la base de données
 
-   L'outil ne nettoie pas dans ton dos : il montre le défaut, te fait
-   choisir, et te rend le code. Deux choses seulement sont à l'écran —
-   ce qui ne va pas dans les données, et le script qui va le corriger.
-   Tout le reste doit s'effacer devant ces deux-là.
+   La page répond à une seule question : « ce fichier peut-il entrer en
+   base, et qu'est-ce qui a été refusé ? ». Le langage visuel est celui
+   d'un rapport de contrôle, pas d'un tableau de bord : papier clair,
+   encre dense, un bleu marine de registre, des tableaux.
 
-   L'unité de la page est donc la COLONNE du fichier, pas la carte. Une
-   colonne = une ligne : son nom (en mono, c'est un identifiant), son
-   type, une bande de densité qui montre les trous, la mesure, la
-   gravité. On lit la liste de haut en bas et on VOIT où sont les trous,
-   au lieu de lire « 23 problèmes » dans une tuile.
-
-   La gravité ne prend pas de couleur. Un feu tricolore rouge/orange/
-   jaune/vert sur quatre niveaux est le réflexe, et il ment : ce sont
-   quatre crans d'une même échelle, pas quatre catégories. Elle est donc
-   portée par l'ordre de la liste et par la graisse du mot. Le bleu de
-   tampon ne sert qu'à une chose dans toute la feuille : marquer ce qui
-   manque ou ce qui est faux.
+   Trois couleurs d'état, et elles ne servent qu'à ça :
+     garanti  -> vert   (vérifié sur les données)
+     violé    -> rouge  (le contrat n'est pas tenu)
+     refusé   -> ambre  (l'outil a choisi de ne pas inventer)
+   Le refus n'est PAS une erreur : c'est pour ça qu'il n'est pas rouge.
+   Chaque état porte aussi une marque et un mot : la couleur seule ne
+   dit jamais rien.
    ═══════════════════════════════════════════════════════════════════ */
 
 :root {
-  --sheet:   #f4f4f1;
-  --sheet-2: #ececeA;
-  --sheet-3: #e3e4e0;
-  --ink:     #1f2328;
-  --ink-2:   #5a626b;
-  --ink-3:   #8d959d;
-  --rule:    #d9dad5;
-  --rule-soft: #e6e7e3;
+  --sheet:   #f6f7f9;   /* fond de page */
+  --sheet-2: #eef1f4;   /* zones en retrait */
+  --sheet-3: #e4e8ed;
+  --card:    #ffffff;
+  --ink:     #0f172a;
+  --ink-2:   #475569;
+  --ink-3:   #5f6b7d;
+  --rule:    #d3d9e1;
+  --rule-soft: #e6eaef;
 
-  /* Bleu de tampon : ce qui manque, ce qui est faux. Rien d'autre. */
-  --stamp:      #0f6c93;
-  --stamp-weak: #dfeaf0;
+  /* Marine de registre : l'identité, les actions, le focus. */
+  --stamp:      #1e3a5f;
+  --stamp-weak: #e7edf5;
 
-  --danger:      #9c3328;
-  --danger-weak: #f4e3e1;
+  --ok:        #15803d;
+  --ok-weak:   #e8f4ec;
+  --danger:      #b42318;
+  --danger-weak: #fbeceb;
+  --hold:      #a15c07;
+  --hold-weak: #fbf2e1;
 
-  --r: 3px;
+  --r: 6px;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --sheet:   #16191c;
-    --sheet-2: #1d2125;
-    --sheet-3: #242a2f;
-    --ink:     #e2e5e8;
-    --ink-2:   #9aa3ab;
-    --ink-3:   #6d767e;
-    --rule:    #2c3238;
-    --rule-soft: #232930;
-    --stamp:      #56aed3;
-    --stamp-weak: #14303d;
-    --danger:      #e08b80;
-    --danger-weak: #331f1d;
+    --sheet:   #0e141d;
+    --sheet-2: #141c28;
+    --sheet-3: #1b2533;
+    --card:    #121a25;
+    --ink:     #e6eaf0;
+    --ink-2:   #a7b1c0;
+    --ink-3:   #8c97a8;
+    --rule:    #2a3546;
+    --rule-soft: #1f2836;
+    --stamp:      #93b4dc;
+    --stamp-weak: #18263a;
+    --ok:        #5cc98a;
+    --ok-weak:   #12291c;
+    --danger:      #f08a80;
+    --danger-weak: #331a18;
+    --hold:      #e3b25a;
+    --hold-weak: #2e2412;
   }
 }
 
@@ -69,48 +74,178 @@ body {
 
 @layer components {
 
-  .wrap { @apply mx-auto w-full; max-width: 56rem; padding-left: 1.25rem; padding-right: 1.25rem; }
+  .wrap { @apply mx-auto w-full; max-width: 68rem; padding-left: 1.5rem; padding-right: 1.5rem; }
 
   /* ── En-tête ─────────────────────────────────────────────────── */
 
   .topbar {
-    @apply flex items-baseline justify-between gap-6 flex-wrap;
-    padding: 1.5rem 0 0.75rem;
+    @apply flex items-center justify-between gap-6 flex-wrap;
+    padding: 1.1rem 0;
     border-bottom: 1px solid var(--rule);
   }
+  .brand { @apply flex items-center gap-2.5; color: var(--ink); }
   .topbar-name { @apply text-[0.95rem] font-semibold tracking-tight; color: var(--ink); }
+  .status-dot { @apply inline-block rounded-full; width: 7px; height: 7px; background: var(--ok); margin-right: 0.45rem; }
+  .status-dot--off { background: var(--danger); }
 
-  /* Une ligne de métadonnées : tout ce qui est mesuré est en mono. */
-  .meta {
-    @apply font-mono text-[0.75rem];
-    color: var(--ink-2);
-  }
+  .meta { @apply font-mono text-[0.75rem]; color: var(--ink-2); }
   .meta-sep { color: var(--ink-3); margin: 0 0.5rem; }
 
+  .eyebrow { @apply font-mono text-[0.74rem] uppercase tracking-[0.08em]; color: var(--stamp); }
   .title {
-    @apply text-[1.6rem] leading-tight tracking-tight font-semibold;
+    @apply text-[2.1rem] leading-[1.15] tracking-tight font-semibold;
     color: var(--ink);
+    text-wrap: balance;
   }
-  .lede {
-    @apply text-[0.95rem] leading-relaxed;
-    color: var(--ink-2);
-    max-width: 34rem;
+  @media (max-width: 40rem) { .title { font-size: 1.65rem; } }
+  .lede { @apply text-[1rem] leading-relaxed; color: var(--ink-2); max-width: 36rem; }
+
+  .hero {
+    @apply grid items-center gap-10;
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+    padding: 3rem 0 2.5rem;
   }
+  @media (max-width: 56rem) { .hero { grid-template-columns: 1fr; gap: 2rem; padding-top: 2rem; } }
+  .hero-art { color: var(--ink-2); }
 
   .section-head {
     @apply flex items-baseline justify-between gap-4 flex-wrap;
-    padding-bottom: 0.4rem;
-    margin-bottom: 0.9rem;
+    padding-bottom: 0.5rem;
+    margin-bottom: 1rem;
     border-bottom: 1px solid var(--rule);
   }
   .section-label { @apply font-mono text-[0.74rem]; color: var(--ink-2); }
+  .h2 { @apply text-[1.15rem] font-semibold tracking-tight; color: var(--ink); }
+  .step-num {
+    @apply inline-flex items-center justify-center font-mono text-[0.72rem] font-semibold;
+    width: 1.5rem; height: 1.5rem; border-radius: 999px;
+    background: var(--stamp); color: var(--card); margin-right: 0.6rem;
+  }
 
-  /* ── La colonne du fichier, unité de la page ─────────────────── */
+  /* ── Cartes ──────────────────────────────────────────────────── */
 
-  /* Largeurs FIXES, pas `auto` : chaque ligne est sa propre grille, donc
-     `auto` les dimensionne indépendamment et les bandes ne s'alignent plus
-     d'une ligne à l'autre. Or toute la valeur de ces bandes est qu'on les
-     balaie en colonne — mal alignées, elles ne valent plus rien. */
+  .card {
+    background: var(--card);
+    border: 1px solid var(--rule);
+    border-radius: var(--r);
+    padding: 1.4rem 1.5rem;
+  }
+  .card + .card { margin-top: 1.25rem; }
+  .step { margin-bottom: 2rem; }
+
+  /* ── Choix de l'usage ────────────────────────────────────────── */
+
+  .usages { @apply grid gap-3; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  @media (max-width: 56rem) { .usages { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 30rem) { .usages { grid-template-columns: 1fr; } }
+  .usage {
+    @apply flex flex-col gap-2 text-left cursor-pointer;
+    padding: 1rem;
+    min-height: 44px;
+    border: 1px solid var(--rule);
+    border-radius: var(--r);
+    background: var(--card);
+    color: var(--ink-2);
+    transition: border-color 180ms ease, background-color 180ms ease;
+  }
+  .usage:hover { border-color: var(--stamp); }
+  .usage--on { border-color: var(--stamp); background: var(--stamp-weak); box-shadow: inset 0 0 0 1px var(--stamp); }
+  .usage-name { @apply text-[0.92rem] font-semibold; color: var(--ink); }
+  .usage-rule { @apply font-mono text-[0.72rem] leading-snug; color: var(--ink-3); }
+  .usage svg { color: var(--stamp); }
+
+  /* ── Le verdict ──────────────────────────────────────────────── */
+
+  .verdict {
+    @apply flex items-start gap-4 flex-wrap;
+    padding: 1.25rem 1.4rem;
+    border-radius: var(--r);
+    border: 1px solid var(--rule);
+    border-left-width: 4px;
+    background: var(--card);
+  }
+  .verdict--ok  { border-left-color: var(--ok); }
+  .verdict--bad { border-left-color: var(--danger); }
+  .verdict-title { @apply text-[1.2rem] font-semibold tracking-tight; color: var(--ink); }
+  .verdict-ok  { color: var(--ok); }
+  .verdict-bad { color: var(--danger); }
+
+  .kpis { @apply grid gap-3; grid-template-columns: repeat(4, minmax(0, 1fr)); margin-top: 1rem; }
+  @media (max-width: 44rem) { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .kpi { padding: 0.8rem 1rem; border: 1px solid var(--rule-soft); border-radius: var(--r); background: var(--card); }
+  .kpi-label { @apply font-mono text-[0.7rem] uppercase tracking-[0.06em]; color: var(--ink-3); }
+  .kpi-value { @apply text-[1.35rem] font-semibold tracking-tight; color: var(--ink); margin-top: 0.15rem; }
+  .kpi-sub { @apply font-mono text-[0.72rem]; color: var(--ink-3); }
+
+  /* ── Les trois listes : garanti / non garanti / refusé ───────── */
+
+  .ledger { @apply grid gap-4; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 1.25rem; }
+  @media (max-width: 56rem) { .ledger { grid-template-columns: 1fr; } }
+  .ledger-col { background: var(--card); border: 1px solid var(--rule); border-radius: var(--r); overflow: hidden; }
+  .ledger-head {
+    @apply flex items-center justify-between gap-2 text-[0.85rem] font-semibold;
+    padding: 0.7rem 1rem;
+    border-bottom: 1px solid var(--rule-soft);
+  }
+  .ledger-head--ok   { background: var(--ok-weak);     color: var(--ok); }
+  .ledger-head--bad  { background: var(--danger-weak); color: var(--danger); }
+  .ledger-head--hold { background: var(--hold-weak);   color: var(--hold); }
+  .ledger-count { @apply font-mono text-[0.78rem]; }
+  .ledger-list { max-height: 22rem; overflow-y: auto; }
+  .ledger-item {
+    @apply flex gap-2 text-[0.82rem] leading-snug;
+    padding: 0.55rem 1rem;
+    border-top: 1px solid var(--rule-soft);
+    color: var(--ink-2);
+  }
+  .ledger-item:first-child { border-top: 0; }
+  .ledger-item svg { flex: none; margin-top: 0.15rem; }
+  .ledger-empty { @apply text-[0.82rem]; padding: 0.8rem 1rem; color: var(--ink-3); }
+  .col-ref { @apply font-mono text-[0.8rem]; color: var(--ink); }
+
+  /* ── Tableaux (contrat, plan) ────────────────────────────────── */
+
+  .table-wrap { overflow-x: auto; }
+  .data-table { @apply w-full text-[0.84rem] border-collapse; }
+  .data-table th {
+    @apply text-left font-mono text-[0.7rem] uppercase tracking-[0.06em] font-medium whitespace-nowrap;
+    padding: 0.55rem 0.9rem 0.55rem 0;
+    color: var(--ink-3);
+    border-bottom: 1px solid var(--rule);
+  }
+  .data-table td {
+    padding: 0.5rem 0.9rem 0.5rem 0;
+    color: var(--ink-2);
+    border-bottom: 1px solid var(--rule-soft);
+    vertical-align: top;
+  }
+  .data-table td.mono { @apply font-mono text-[0.8rem]; color: var(--ink); }
+  .tag {
+    @apply inline-flex items-center font-mono text-[0.7rem] whitespace-nowrap;
+    padding: 0.08rem 0.45rem;
+    border-radius: 4px;
+    border: 1px solid var(--rule);
+    color: var(--ink-2);
+    background: var(--sheet-2);
+  }
+  .tag--key { border-color: var(--stamp); color: var(--stamp); background: var(--stamp-weak); }
+
+  .notes { @apply flex flex-col gap-2; margin-top: 1rem; }
+  .note-item {
+    @apply flex gap-2.5 text-[0.84rem] leading-relaxed;
+    padding: 0.65rem 0.85rem;
+    border-radius: var(--r);
+    background: var(--hold-weak);
+    color: var(--ink);
+  }
+  .note-item svg { flex: none; margin-top: 0.2rem; color: var(--hold); }
+  .note-item--info { background: var(--stamp-weak); }
+  .note-item--info svg { color: var(--stamp); }
+
+  .downloads { @apply flex flex-wrap gap-2; margin-top: 1.25rem; }
+
+  /* ── La colonne du fichier (mode détaillé) ───────────────────── */
+
   .colrow {
     @apply grid items-baseline gap-x-4 gap-y-1 w-full text-left;
     grid-template-columns: 9rem 13rem minmax(4rem, 1fr) 15rem;
@@ -126,106 +261,91 @@ body {
   .colrow--pick { cursor: pointer; }
   .colrow--pick:hover .colrow-name { color: var(--stamp); }
   .colrow--on { background: var(--sheet-2); }
-
   .colrow-name { @apply font-mono text-[0.86rem] truncate; color: var(--ink); }
   .colrow-kind { @apply font-mono text-[0.72rem]; color: var(--ink-3); }
   .colrow-note { @apply font-mono text-[0.72rem] text-right; color: var(--ink-2); }
-
-  /* La bande de densité : la partie pleine est de l'encre, le trou est
-     du tampon. C'est une donnée, pas une décoration — sa longueur est
-     la proportion réelle. */
   .strip {
     @apply block w-full overflow-hidden;
-    height: 6px;
-    border-radius: var(--r);
-    background: var(--ink-2);
-    min-width: 3rem;
+    height: 6px; border-radius: 3px; background: var(--ink-2); min-width: 3rem;
   }
-  .strip > i {
-    @apply block h-full;
-    background: var(--stamp);
-    float: right;
-  }
-
-  /* La gravité est un mot, et sa graisse est son échelle. */
+  .strip > i { @apply block h-full; background: var(--hold); float: right; }
   .sev { @apply font-mono text-[0.72rem]; }
   .sev--critical { color: var(--ink); font-weight: 600; }
   .sev--high     { color: var(--ink); }
   .sev--medium   { color: var(--ink-2); }
   .sev--low      { color: var(--ink-3); }
-
   .colrow-desc {
     @apply text-[0.84rem] leading-normal flex items-baseline gap-2 flex-wrap;
-    grid-column: 1 / -1;
-    color: var(--ink-2);
-    max-width: 48rem;
+    grid-column: 1 / -1; color: var(--ink-2); max-width: 48rem;
   }
   .colrow-hint { @apply font-mono text-[0.72rem] whitespace-nowrap; color: var(--ink-3); }
 
   /* ── Contrôles ───────────────────────────────────────────────── */
 
   .btn {
-    @apply inline-flex items-center gap-2 font-mono text-[0.78rem] cursor-pointer;
-    padding: 0.42rem 0.8rem;
+    @apply inline-flex items-center gap-2 text-[0.85rem] font-medium cursor-pointer;
+    min-height: 40px;
+    padding: 0.45rem 0.95rem;
     border-radius: var(--r);
     border: 1px solid var(--rule);
-    background: transparent;
-    color: var(--ink-2);
+    background: var(--card);
+    color: var(--ink);
+    transition: border-color 180ms ease, background-color 180ms ease, color 180ms ease;
   }
-  .btn:hover:not(:disabled) { color: var(--ink); border-color: var(--ink-3); }
-  .btn:disabled { opacity: 0.45; cursor: not-allowed; }
-
-  .btn--primary {
-    background: var(--ink);
-    border-color: var(--ink);
-    color: var(--sheet);
-  }
-  .btn--primary:hover:not(:disabled) { background: var(--stamp); border-color: var(--stamp); color: #fff; }
-
-  .btn--quiet {
-    border-color: transparent;
-    padding-left: 0;
-    padding-right: 0;
-  }
+  .btn:hover:not(:disabled) { border-color: var(--stamp); color: var(--stamp); }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn--primary { background: var(--stamp); border-color: var(--stamp); color: var(--card); }
+  .btn--primary:hover:not(:disabled) { filter: brightness(1.15); color: var(--card); }
+  .btn--quiet { border-color: transparent; background: transparent; padding-left: 0; padding-right: 0; color: var(--ink-2); }
   .btn--quiet:hover:not(:disabled) { color: var(--stamp); border-color: transparent; text-decoration: underline; text-underline-offset: 3px; }
-
   .btn--drop:hover:not(:disabled) { color: var(--danger); border-color: var(--danger); }
+
+  .spinner {
+    display: inline-block; width: 14px; height: 14px; border-radius: 999px;
+    border: 2px solid currentColor; border-right-color: transparent;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
 
   /* ── Dépôt de fichier ────────────────────────────────────────── */
 
   .drop {
     @apply flex flex-col items-center justify-center text-center cursor-pointer;
-    padding: 3rem 1.5rem;
-    border: 1px dashed var(--rule);
+    padding: 2.4rem 1.5rem;
+    border: 1.5px dashed var(--rule);
     border-radius: var(--r);
-    background: var(--sheet-2);
+    background: var(--card);
+    transition: border-color 180ms ease, background-color 180ms ease;
   }
   .drop:hover, .drop--over { border-color: var(--stamp); background: var(--stamp-weak); }
-  .drop-title { @apply text-[0.95rem]; color: var(--ink); }
+  .drop svg { color: var(--stamp); margin-bottom: 0.75rem; }
+  .drop-title { @apply text-[0.95rem] font-medium; color: var(--ink); }
   .drop-hint { @apply font-mono text-[0.74rem] mt-2; color: var(--ink-3); }
+  .file-chip {
+    @apply flex items-center justify-between gap-3 flex-wrap;
+    padding: 0.8rem 1rem; border: 1px solid var(--rule); border-radius: var(--r); background: var(--card);
+  }
 
   /* ── Panneaux ────────────────────────────────────────────────── */
 
   .panel { margin-bottom: 2.4rem; }
-
   .note {
-    @apply text-[0.82rem] leading-relaxed;
-    padding: 0.45rem 0 0.45rem 0.75rem;
+    @apply text-[0.84rem] leading-relaxed;
+    padding: 0.5rem 0 0.5rem 0.85rem;
     border-left: 2px solid var(--stamp);
     color: var(--ink-2);
     max-width: 44rem;
   }
   .note-who { @apply font-mono text-[0.72rem]; color: var(--ink-3); display: block; }
-
   .alert {
-    @apply text-[0.84rem];
-    padding: 0.5rem 0 0.5rem 0.75rem;
-    border-left: 2px solid var(--rule);
+    @apply text-[0.86rem];
+    padding: 0.65rem 0.9rem;
+    border-radius: var(--r);
+    border-left: 3px solid var(--rule);
+    background: var(--card);
     color: var(--ink-2);
   }
-  .alert--bad { border-left-color: var(--danger); color: var(--danger); }
-
-  /* ── Le script ───────────────────────────────────────────────── */
+  .alert--bad { border-left-color: var(--danger); background: var(--danger-weak); color: var(--danger); }
 
   .code {
     @apply font-mono text-[0.78rem] leading-relaxed overflow-x-auto whitespace-pre;
@@ -237,57 +357,45 @@ body {
     max-height: 30rem;
   }
 
-  /* ── Aperçu du fichier ───────────────────────────────────────── */
-
   .sheet-table { @apply w-full font-mono text-[0.76rem] border-collapse; }
   .sheet-table th {
     @apply text-left whitespace-nowrap font-medium;
-    padding: 0.35rem 0.8rem 0.35rem 0;
-    color: var(--ink-3);
-    border-bottom: 1px solid var(--rule);
+    padding: 0.35rem 0.8rem 0.35rem 0; color: var(--ink-3); border-bottom: 1px solid var(--rule);
   }
   .sheet-table td {
     @apply whitespace-nowrap truncate;
-    padding: 0.28rem 0.8rem 0.28rem 0;
-    color: var(--ink-2);
-    border-bottom: 1px solid var(--rule-soft);
-    max-width: 14rem;
+    padding: 0.28rem 0.8rem 0.28rem 0; color: var(--ink-2); border-bottom: 1px solid var(--rule-soft); max-width: 14rem;
   }
-  .cell-empty { color: var(--stamp); }
-
-  /* ── Choix d'une stratégie ───────────────────────────────────── */
+  .cell-empty { color: var(--hold); }
 
   .modal-veil {
     @apply fixed inset-0 z-50 flex items-start justify-center overflow-y-auto;
-    background: rgba(20, 24, 28, 0.55);
-    padding: 3rem 1.25rem;
+    background: rgba(15, 23, 42, 0.5); padding: 3rem 1.25rem;
   }
   .modal-card {
-    @apply w-full;
-    max-width: 44rem;
-    background: var(--sheet);
-    border: 1px solid var(--rule);
-    border-radius: var(--r);
-    padding: 1.6rem;
+    @apply w-full; max-width: 44rem; background: var(--card);
+    border: 1px solid var(--rule); border-radius: var(--r); padding: 1.6rem;
   }
-
-  .opt {
-    @apply w-full text-left cursor-pointer;
-    padding: 0.85rem 0;
-    border-top: 1px solid var(--rule-soft);
-  }
+  .opt { @apply w-full text-left cursor-pointer; padding: 0.85rem 0; border-top: 1px solid var(--rule-soft); }
   .opt:first-of-type { border-top: 0; }
   .opt:hover .opt-name { color: var(--stamp); }
   .opt--on { background: var(--sheet-2); }
   .opt-name { @apply text-[0.92rem] font-medium; color: var(--ink); }
   .opt-for, .opt-against { @apply text-[0.8rem] leading-normal; color: var(--ink-2); }
   .opt-against { color: var(--ink-3); }
+
+  .foot {
+    @apply text-[0.8rem];
+    margin-top: 4rem; padding: 1.5rem 0 2.5rem;
+    border-top: 1px solid var(--rule); color: var(--ink-3);
+  }
+  .foot a { color: var(--stamp); text-decoration: underline; text-underline-offset: 3px; }
 }
 
 :focus-visible {
   outline: 2px solid var(--stamp);
   outline-offset: 2px;
-  border-radius: var(--r);
+  border-radius: 4px;
 }
 
 @media (prefers-reduced-motion: reduce) {

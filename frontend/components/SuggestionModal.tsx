@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import { IconX } from './Illustrations';
 
 interface Strategy {
   name: string;
@@ -59,7 +60,7 @@ export const SuggestionModal: React.FC<SuggestionModalProps> = ({
             aria-label="Fermer"
             className="btn btn--quiet"
           >
-            ✕
+            <IconX size={18} />
           </button>
         </div>
 
