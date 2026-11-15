@@ -30,7 +30,7 @@ OPENAI_API_KEY=<key> docker-compose up --build
 ```bash
 cd backend
 pip install pandas numpy openpyxl fastapi "pydantic>=2" pydantic-settings python-multipart httpx openai pytest
-pytest tests/ -q   # 221 tests (1 skipped) : advisor, quality, agent_cleaner, contract, reparer, corpus, preparation, forme, excel, bout-en-bout
+pytest tests/ -q   # 234 tests (1 skipped) : advisor, quality, agent_cleaner, contract, reparer, corpus, preparation, forme, excel, bout-en-bout
 ```
 CI : `.github/workflows/tests.yml` (push/PR). La boucle agentique tourne 100 % offline (conseiller fail-open → rule-based).
 
@@ -157,6 +157,32 @@ whether `00042` and `42` are the same key is a decision. Both files must be read
 text** (`DataProfiler._load_file(..., True)`), otherwise `01000` and `1000` are already
 equal and nothing can be seen. `lignes_resultat` was cross-checked against a real
 `pd.merge` on five real cases; keep that property if the counting changes.
+
+### Security logs — what four real files broke (15/11/2026, direction B)
+
+Zeek `conn.log` and three Loghub logs, usage `base`, all reported **held 100/100**
+while the output had fabricated or destroyed information. Locked in `tests/test_securite.py`:
+
+- **A date was invented.** A time-only column (`06:55:46`) came out as
+  `2026-11-15 06:55:46` — the run date. All date reading now goes through
+  `contract.lire_dates`: a value is a date only if it *carries* one (4-digit year, or
+  three separated numbers). Never call `pd.to_datetime` directly on user data.
+- **Day/month order is read from the column, never assumed.** `01/03/2024` was read
+  month-first. A first number > 12 proves day-first, a second proves month-first;
+  if neither (or both), the column is ambiguous and is **not converted** —
+  `format_date` in the contract settles it.
+- **Case-carrying codes were merged.** Zeek `history` lost 17 of 119 values
+  (`ShADTdtr` -> `ShADTdtR`; uppercase = originator). `contract.casse_porteuse`
+  decides **per column**: one collision group with a mixed-case variant means codes,
+  so nothing is merged (`Sr`/`SR` are both ordinary spellings and still distinct
+  codes) and a refusal is logged. `ContratColonne.casse_significative=True` forces it.
+  Verifier and repair both use the predicate from `contract.py` — the dependency
+  still only goes one way.
+- A leading zero forbids the *numeric* reading, not the date reading: `est_un_code`
+  was blocking `01/03/2024` from ever being tried as a date.
+
+Still open for direction B: Zeek's native TSV (it declares its own `#fields`/`#types`,
+so the contract can come from the file), ports judged by IQR instead of 0-65535.
 
 ### Shape: what a value must look like — `contract.FORMES`
 

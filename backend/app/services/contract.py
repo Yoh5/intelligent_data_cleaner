@@ -146,6 +146,10 @@ class ContratColonne:
     #: ou une expression régulière. Une valeur qui ne la respecte pas est une
     #: **violation**, jamais une valeur corrigée en silence.
     forme: Optional[str] = None
+    #: La casse porte-t-elle un sens dans cette colonne ? `True` interdit toute
+    #: fusion de graphies (`OK`/`ok`). À `False`, la règle automatique
+    #: s'applique quand même : voir `casse_porteuse`.
+    casse_significative: bool = False
     #: Budget d'imputation propre à la colonne ; `None` -> celui du contrat.
     imputation_max: Optional[float] = None
     #: Que faire des valeurs hors de [minimum, maximum] :
@@ -312,6 +316,81 @@ def _numerique(s: pd.Series) -> pd.Series:
     return pd.to_numeric(brut, errors="coerce")
 
 
+def casse_ordinaire(v: str) -> bool:
+    """`rabat`, `RABAT`, `Rabat`, `Ain Diab` : les graphies qu'on obtient en
+    écrivant un mot. `ShADTdtr` ou `iPhone` n'en sont pas."""
+    return v in (v.lower(), v.upper(), v.capitalize(), v.title())
+
+
+def casse_porteuse(valeurs) -> bool:
+    """La casse porte-t-elle un sens dans cette colonne ?
+
+    Oui dès qu'un groupe de graphies qui ne diffèrent que par la casse contient
+    une forme à casse mixte. Le champ `history` de Zeek en est le cas d'école :
+    `ShADTdtr` et `ShADTdtR` ne sont pas deux écritures d'un même mot, la
+    majuscule dit que le paquet vient de l'initiateur. Les fusionner comme
+    `Rabat` et `rabat` détruisait 17 valeurs sur 119 d'un journal réel.
+
+    La décision vaut pour **toute la colonne** : dans une colonne de codes,
+    `Sr` et `SR` sont deux graphies ordinaires et pourtant deux codes
+    distincts. Dans le doute on ne fusionne rien — un refus se corrige, une
+    fusion ne se défait pas.
+    """
+    groupes: Dict[str, List[str]] = {}
+    for v in valeurs:
+        t = str(v).strip()
+        groupes.setdefault(t.lower(), []).append(t)
+    return any(len(set(g)) > 1 and not all(casse_ordinaire(x) for x in set(g))
+               for g in groupes.values())
+
+
+_DATE_CHIFFREE = r"^\s*(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{2}|\d{4})(?!\d)"
+
+
+def lire_dates(s: pd.Series, format_date: Optional[str] = None) -> pd.Series:
+    """Convertit en dates **sans rien inventer** ; ce qui ne tient pas devient NaT.
+
+    Laissé à lui-même, l'analyseur de dates complète ce qui manque et tranche ce
+    qui est ambigu, sans le dire. Trois cas trouvés sur des journaux réels :
+
+    - **une heure seule** (`06:55:46`) recevait la date du jour de l'exécution ;
+    - **un jour sans année** n'a pas d'année à recevoir ;
+    - **`01/03/2024`** : 1er mars ou 3 janvier ? L'analyseur choisit le mois
+      d'abord, et lit donc de travers tout fichier français ou marocain dont
+      les jours tiennent sous 13 — puis rejette `15/03/2024`.
+
+    Donc : une valeur n'est une date que si elle **porte** une date (une année
+    sur quatre chiffres, ou trois nombres séparés). Et l'ordre jour/mois se lit
+    **dans la colonne** : un premier nombre au-dessus de 12 dit « jour
+    d'abord », un second « mois d'abord ». Si aucun ne tranche, la colonne est
+    ambiguë et on ne convertit pas — `format_date` dans le contrat lève le doute.
+    """
+    if pd.api.types.is_datetime64_any_dtype(s):
+        return s
+    if format_date:
+        return pd.to_datetime(s, errors="coerce", format=format_date)
+    texte = s.where(s.isna(), s.astype(str))
+    plein = texte.fillna("")
+    chiffree = plein.str.extract(_DATE_CHIFFREE)
+    est_chiffree = chiffree[0].notna()
+    porte = plein.str.contains(r"\d{4}") | est_chiffree
+
+    jour_dabord = False
+    if est_chiffree.any():
+        a = chiffree[0][est_chiffree].astype(int)
+        b = chiffree[1][est_chiffree].astype(int)
+        j, m = bool((a > 12).any()), bool((b > 12).any())
+        if j == m and not bool((a == b).all()):
+            # contradictoire (les deux) ou indécidable (aucun) : on s'abstient
+            porte = porte & ~est_chiffree
+        jour_dabord = j
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        conv = pd.to_datetime(texte, errors="coerce", dayfirst=jour_dabord)
+    return conv.where(porte)
+
+
 def part_convertible(s: pd.Series, type_: str,
                      format_date: Optional[str] = None) -> Tuple[float, List[Any]]:
     """Part des valeurs non nulles qui tiennent le type, et jusqu'à 3 exemples
@@ -339,8 +418,7 @@ def part_convertible(s: pd.Series, type_: str,
         if pd.api.types.is_datetime64_any_dtype(nn):
             ok = pd.Series(True, index=nn.index)
         else:
-            ok = pd.to_datetime(_texte(nn), errors="coerce",
-                                format=format_date).notna()
+            ok = lire_dates(_texte(nn), format_date).notna()
     else:  # pragma: no cover - `type` est validé à la construction
         return 1.0, []
 
@@ -369,7 +447,7 @@ def convertir(s: pd.Series, type_: str,
             lambda v: True if v in VRAI else (False if v in FAUX else pd.NA)
         ).astype("boolean")
     if type_ == "datetime":
-        return pd.to_datetime(s, errors="coerce", format=format_date)
+        return lire_dates(s, format_date)
     if type_ == "category":
         return s.astype("object").astype("category")
     return s.astype("object")
@@ -544,7 +622,8 @@ def verify(df: pd.DataFrame, contrat: Contrat,
         #    passer `Rabat` / `rabat`.
         if cc.type in ("string", "category") and not cc.domaine                 and texte_nn is not None:
             vals = texte_nn.unique()
-            if 1 < len(vals) <= 10000:
+            if (1 < len(vals) <= 10000 and not cc.casse_significative
+                    and not casse_porteuse(vals)):
                 groupes: Dict[str, set] = {}
                 for v in vals:
                     groupes.setdefault(v.lower(), set()).add(v)

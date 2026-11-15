@@ -14,7 +14,7 @@ la liste de ce qu'elle n'a pas pu faire.
 ![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-green.svg)
 ![Next.js](https://img.shields.io/badge/Next.js-16+-black.svg)
-![tests](https://img.shields.io/badge/tests-221-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-234-brightgreen.svg)
 
 ---
 
@@ -319,7 +319,7 @@ uvicorn app.main:app --reload          # http://localhost:8000/docs
 # Frontend
 cd frontend && npm install && npm run dev   # http://localhost:3000
 
-# Tests — 221 (dont 1 sauté), sans réseau et sans clé
+# Tests — 234 (dont 1 sauté), sans réseau et sans clé
 cd backend && python -m pytest tests/ -q
 ```
 
@@ -363,6 +363,19 @@ Deux endroits où il fait délibérément autrement que l'exercice :
 | `df['source_ip'].fillna('0.0.0.0')` | **non** — on ignore ce que l'adresse aurait dû être, et la remplacer fabrique un fait sur un événement de sécurité : une machine qui n'existe pas apparaît dans le journal |
 | `.clip(lower=0, upper=65535)` | **non par défaut** — un port 70000 ramené à 65535 devient un port plausible jamais observé, et toute statistique faite ensuite porte sur une distribution façonnée |
 | `imputer.fit_transform(df)` sur tout le fichier | `/prepare/` ajuste **après** la séparation |
+
+### Quatre journaux réels, et ce qu'ils ont cassé
+
+Passés tels quels dans la passe sous contrat (usage « charger en base ») : un
+journal de connexions **Zeek** et trois journaux **Loghub** (OpenSSH, Apache,
+Linux). Les quatre étaient déclarés tenus à 100/100, et deux sorties étaient
+fausses :
+
+| ce qui sortait | ce qui sort maintenant |
+|---|---|
+| `Time` = `06:55:46` devenait `2026-11-15 06:55:46` : **la date du jour de l'exécution**, dans un journal d'authentification | l'heure reste une heure ; une valeur n'est une date que si elle en porte une |
+| `history` de Zeek passait de **119 à 102 valeurs** : `ShADTdtr` fusionné avec `ShADTdtR`, alors que la majuscule désigne l'initiateur du paquet | aucune fusion dans une colonne de codes, et le refus est consigné |
+| `01/03/2024` lu comme le 3 janvier | l'ordre jour/mois se lit dans la colonne (`15/03` le prouve) ; s'il est indécidable, la colonne n'est pas convertie |
 
 ---
 

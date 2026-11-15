@@ -44,7 +44,7 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 import pandas as pd
 
-from app.services.contract import (FORMES, MARQUEURS_VIDES, Contrat,
+from app.services.contract import (FORMES, MARQUEURS_VIDES, Contrat, casse_porteuse,
                                    ContratColonne, convertir)
 
 #: Au-delà de cette part imputée, on ajoute une colonne indicatrice. Imputer
@@ -216,6 +216,17 @@ def nettoyer_le_texte(df: pd.DataFrame, contrat: Contrat,
             groupes.setdefault(str(v).lower(), []).append(str(v))
         collisions = {k: g for k, g in groupes.items() if len(g) > 1}
         if not collisions:
+            continue
+        if cc.casse_significative or casse_porteuse(vus.unique()):
+            # Des codes, pas des noms : `ShADTdtr` et `ShADTdtR` ne sont pas
+            # deux écritures d'un même mot. On ne fusionne rien, et on le dit.
+            exemples = next(iter(collisions.values()))[:2]
+            j.refuse("casse", cc.nom,
+                     f"{len(collisions)} groupe(s) de valeurs ne diffèrent que par "
+                     f"la casse (par exemple {' / '.join(exemples)}) et n'ont pas été "
+                     f"fusionnés : la casse porte un sens dans cette colonne, "
+                     f"les réunir détruirait des valeurs distinctes",
+                     mesure=float(len(collisions)))
             continue
         freq = vus.value_counts()
         correspondance = {}

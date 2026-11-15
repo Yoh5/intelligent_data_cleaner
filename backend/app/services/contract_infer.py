@@ -296,6 +296,14 @@ def type_apres_nettoyage(s: pd.Series, defaut: str,
 
     code, _ = est_un_code(nn)
     if code:
+        # Un zéro initial interdit la lecture NUMÉRIQUE (`01000` -> `1000`),
+        # pas la lecture d'une date : `01/03/2024` commence par un zéro et
+        # n'est pas un code. On n'essaie la date que si chaque valeur porte un
+        # séparateur — une suite de chiffres nue reste un code.
+        if bool(nn.astype(str).str.contains(r"\d[/.\-]\d").all()):
+            part, _ = part_convertible(nn, "datetime")
+            if part >= 1.0:
+                return "datetime"
         return defaut
 
     # Le booléen AVANT le chiffre : `_numerique` le convertit maintenant en
