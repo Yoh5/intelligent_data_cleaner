@@ -30,7 +30,7 @@ OPENAI_API_KEY=<key> docker-compose up --build
 ```bash
 cd backend
 pip install pandas numpy openpyxl fastapi "pydantic>=2" pydantic-settings python-multipart httpx openai pytest
-pytest tests/ -q   # 254 tests (1 skipped) : advisor, quality, agent_cleaner, contract, reparer, corpus, preparation, forme, excel, bout-en-bout
+pytest tests/ -q   # 295 tests (1 skipped ; les tests sur fichiers réels sont sautés sans corpus-public) : advisor, quality, agent_cleaner, contract, reparer, corpus, preparation, forme, excel, bout-en-bout
 ```
 CI : `.github/workflows/tests.yml` (push/PR). La boucle agentique tourne 100 % offline (conseiller fail-open → rule-based).
 
@@ -186,11 +186,11 @@ while the output had fabricated or destroyed information. Locked in `tests/test_
 A Zeek log declares `#fields`, `#types` and `#unset_field`. `agent_contrat.run` and
 `/contract-clean/propose` branch on `zeek.est_zeek(content)` and **translate** that
 declaration (`zeek.contrat`) instead of inferring: `port` -> integer 0-65535, `addr` ->
-forme `ip`, `count`/`interval`/`time` -> non-negative number, text types ->
-`casse_significative=True`. Only nullability and the `uid` key are measured (uid is
+forme `ip`, `count` -> non-negative integer, `time`/`interval`/`double` -> number with
+**no bound** (signed doubles), text types -> `casse_significative=True`. Only nullability and the `uid` key are measured (uid is
 unique in conn.log, repeated in dns/http). Everything is read as text; only the
 declared unset marker becomes a void at load. `.log`/`.log.gz` accepted by CLI, API
-and UI. Measured: 1,021,950 rows / 122 MB in 87 s, held.
+and UI. Measured: 1,021,950 rows / 122 MB in 72 s, held.
 
 Found on the way, all locked in `tests/test_zeek.py` / `test_cli.py`:
 
@@ -207,9 +207,38 @@ Found on the way, all locked in `tests/test_zeek.py` / `test_cli.py`:
 - **Redirected CLI output is UTF-8** (`isatty()` decides); on Windows the JSON verdict
   written to a file was cp1252. Tests that set `PYTHONIOENCODING` cannot see this.
 
-Known limit: after load, the global `MARQUEURS_VIDES` list still applies to Zeek text
-columns (a literal `none` or `unknown` would be voided). No such cell exists in the
-1M-row sample; a per-contract marker list is the fix if it ever matters.
+**Log text is taken literally (34 more real logs, 15/11/2026).** The "known limit"
+written here after conn.log — the global `MARQUEURS_VIDES` list still applying to Zeek
+text — was dismissed because no such cell existed in 1M conn rows. dns/http/ssh/ntlm
+had thousands: `/` (the most requested URI) voided 6,175 times, `none` (SSH's
+compression algorithm), `NULL`, `None`. Three contract-level facts now carry this:
+
+- `Contrat.marqueurs_vides` (`None` = global list, so old contract JSON still loads;
+  Zeek sets `[]`). Read through `contract.marqueurs_de(contrat)` by the repair, the
+  verifier **and** `_base_equivalente` — if the verifier's base kept the global list
+  it would count those cells as "already void in input" and never see them destroyed.
+- `Contrat.espaces_significatifs` (Zeek: True). `loaded_scripts.log` encodes load depth
+  in leading spaces; stripping 506 of them was reported "held 100/100".
+- `time`/`interval` had `minimum=0`, which the file never declares: ntp.log failed on
+  110 legitimate negative values. Translate the declaration, add nothing to it.
+
+**`pd.to_numeric` is not exact to the last digit** (not Zeek-specific):
+`-2.1504318496896954e+09` came out `-2150431849.689696`. `contract._au_chiffre_pres`
+re-reads with `float()` any cell longer than 15 chars or carrying an exponent.
+`convertir(..., "integer")` casts to `Int64` **before** reindexing, because reindexing
+an int64 series through NaN goes via float and rounds above 2^53.
+
+The test that found all of this, and must keep existing:
+`test_reel_chaque_cellule_livree_vaut_la_cellule_recue` re-reads the raw file itself and
+compares every delivered cell, consulting neither the report nor the repair journal.
+A "held" verdict is the tool judging its own output with its own row equivalence;
+only an outside comparison catches what that equivalence forgives. When reading the
+delivered CSV in a test, use `csv.reader`, not `pd.read_csv`: pandas turns `none`
+back into NaN and the test sees nothing.
+
+Still open: for usage `base`, 24 of the 34 logs fail on `cle_absente` alone — true
+(`uid` repeats or is absent), but the tool only ever tries `uid`. `files.log` has
+`fuid`, `x509.log` a fingerprint; proposing a key from the data is the next step.
 
 ### Shape: what a value must look like — `contract.FORMES`
 

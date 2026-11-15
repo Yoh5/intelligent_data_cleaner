@@ -59,7 +59,22 @@ MARQUEURS_VIDES = frozenset({
     "non précisé", "neant", "néant", "vide", "aucun", "aucune", "ras", "sans",
 })
 
-def est_vide(texte: pd.Series) -> pd.Series:
+def marqueurs_de(contrat: Optional["Contrat"]) -> frozenset:
+    """Les marqueurs de vide qui valent pour ce contrat.
+
+    La liste générale est faite pour des fichiers saisis à la main, où `none`
+    ou `/` veulent dire « rien ». Dans un journal, ce sont des valeurs : `/`
+    est l'URI la plus demandée d'un `http.log` (vidée 6 175 fois sur un fichier
+    réel), `none` l'algorithme de compression de SSH. Un contrat peut donc
+    déclarer sa propre liste ; `None` garde la liste générale, `[]` dit que
+    seule une cellule réellement vide est vide.
+    """
+    if contrat is None or contrat.marqueurs_vides is None:
+        return MARQUEURS_VIDES
+    return frozenset(str(m).strip().lower() for m in contrat.marqueurs_vides)
+
+
+def est_vide(texte: pd.Series, marqueurs: frozenset = MARQUEURS_VIDES) -> pd.Series:
     """Masque des cellules qui ne portent qu'un marqueur de vide.
 
     `texte` est la colonne en chaînes, non détourée.
@@ -77,7 +92,9 @@ def est_vide(texte: pd.Series) -> pd.Series:
     établi. Et on note le chiffre de dispersion, parce que sans lui on relirait
     « 10,6 contre 9,1 » comme un résultat alors que c'est du bruit.
     """
-    return texte.str.strip().str.lower().isin(MARQUEURS_VIDES)
+    if not marqueurs:
+        return pd.Series(False, index=texte.index)
+    return texte.str.strip().str.lower().isin(marqueurs)
 
 
 #: Jetons booléens acceptés, en minuscules.
@@ -226,6 +243,13 @@ class Contrat:
     #: que dans un sens). Sans lui, un fichier sans aucune clé était déclaré
     #: « tenu » pour un chargement en base.
     cle_exigee: bool = False
+    #: Les marqueurs de vide propres à ce contrat (voir `marqueurs_de`).
+    #: `None` -> la liste générale, pour que les anciens contrats se relisent.
+    marqueurs_vides: Optional[List[str]] = None
+    #: Les espaces en bordure font-ils partie de la valeur ? Dans
+    #: `loaded_scripts.log`, l'indentation dit la profondeur de chargement, et
+    #: la rogner effaçait 506 lignes de hiérarchie sous un verdict « tenu ».
+    espaces_significatifs: bool = False
 
     def par_nom(self) -> Dict[str, ContratColonne]:
         return {c.nom: c for c in self.colonnes}
@@ -327,12 +351,43 @@ def _numerique(s: pd.Series) -> pd.Series:
 
     direct = pd.to_numeric(nn, errors="coerce")
     if bool(direct.notna().all()):
-        return direct
+        return _au_chiffre_pres(direct, nn)
 
     brut = (nn.astype(str)
               .str.replace(_BRUIT_NUMERIQUE, "", regex=True)
               .str.replace(",", ".", regex=False))
-    return pd.to_numeric(brut, errors="coerce")
+    return _au_chiffre_pres(pd.to_numeric(brut, errors="coerce"), brut)
+
+
+def _au_chiffre_pres(lu: pd.Series, texte: pd.Series) -> pd.Series:
+    """Relit avec `float()` les nombres que la lecture rapide peut arrondir.
+
+    `pd.to_numeric` n'est pas exact au dernier chiffre : `-2.1504318496896954e+09`
+    (un horodatage d'un `ntp.log` réel) ressortait `-2150431849.689696`. L'écart
+    est d'un dixième de microseconde, mais le fichier livré n'était plus le
+    fichier reçu, et aucun contrôle ne le voyait. La lecture rapide est exacte
+    tant que le nombre tient en quinze chiffres sans exposant ; au-delà, on
+    relit la cellule avec `float()`, qui arrondit correctement. Les entiers
+    restent des entiers : rien à relire.
+    """
+    if not pd.api.types.is_float_dtype(lu):
+        return lu
+    t = texte.astype(str)
+    douteux = lu.notna() & ((t.str.len() > 15) | t.str.contains("e", case=False, regex=False))
+    if not bool(douteux.any()):
+        return lu
+
+    def exact(v: str) -> float:
+        try:
+            return float(v)
+        except ValueError:
+            return float("nan")
+
+    relu = t[douteux].map(exact)
+    relu = relu[relu.notna()]
+    lu = lu.copy()
+    lu.loc[relu.index] = relu
+    return lu
 
 
 def casse_ordinaire(v: str) -> bool:
@@ -457,7 +512,13 @@ def convertir(s: pd.Series, type_: str,
     if type_ == "number":
         return pd.to_numeric(_numerique(s).reindex(s.index), errors="coerce")
     if type_ == "integer":
-        return (pd.to_numeric(_numerique(s).reindex(s.index), errors="coerce")
+        lu = _numerique(s)
+        if lu.dtype.kind == "i":
+            # `Int64` AVANT de reloger les vides : réindexer une colonne
+            # d'entiers la fait passer par un flottant, qui arrondit au-delà
+            # de 2^53 — un grand compteur à côté d'un vide changeait de valeur.
+            return lu.astype("Int64").reindex(s.index)
+        return (pd.to_numeric(lu.reindex(s.index), errors="coerce")
                 .astype("Int64"))
     if type_ == "boolean":
         bas = s.where(s.notna()).astype("object").map(
@@ -500,16 +561,17 @@ def _texte_normalise(s: pd.Series) -> Optional[pd.Series]:
 
 
 
-def _marqueurs(texte: Optional[pd.Series]) -> Optional[pd.Series]:
+def _marqueurs(texte: Optional[pd.Series],
+               marqueurs: frozenset = MARQUEURS_VIDES) -> Optional[pd.Series]:
     """Masque booléen des cellules qui portent un marqueur de vide.
 
     `isin` sur une série plutôt que `map` d'une fonction Python : le second
     faisait un appel par cellule, soit un demi-million d'appels sur une seule
     colonne d'un fichier de taille ordinaire.
     """
-    if texte is None or texte.empty:
+    if texte is None or texte.empty or not marqueurs:
         return None
-    return est_vide(texte)
+    return est_vide(texte, marqueurs)
 
 
 def verify(df: pd.DataFrame, contrat: Contrat,
@@ -524,6 +586,7 @@ def verify(df: pd.DataFrame, contrat: Contrat,
     r = Rapport(lignes=len(df), colonnes=len(df.columns))
     n = max(1, len(df))
     attendues = contrat.par_nom()
+    marqueurs = marqueurs_de(contrat)
 
     for nom, cc in attendues.items():
         if nom not in df.columns:
@@ -551,7 +614,7 @@ def verify(df: pd.DataFrame, contrat: Contrat,
         # 2. Un marqueur de vide assis dans une cellule non nulle. C'est le
         #    défaut qui passe tous les contrôles de complétude : la cellule est
         #    « remplie », mais avec un mot qui veut dire vide.
-        masque = _marqueurs(texte_nn)
+        masque = _marqueurs(texte_nn, marqueurs)
         if masque is not None and bool(masque.any()):
             taux = float(masque.sum()) / n
             r.violations.append(Violation(
@@ -717,7 +780,8 @@ def verify(df: pd.DataFrame, contrat: Contrat,
     return r
 
 
-def _base_equivalente(origine: pd.DataFrame) -> pd.DataFrame:
+def _base_equivalente(origine: pd.DataFrame,
+                      contrat: Optional[Contrat] = None) -> pd.DataFrame:
     """L'entrée, un exemplaire par ligne au sens du vérificateur.
 
     Deux lignes sont équivalentes si elles ne diffèrent que par des espaces en
@@ -727,7 +791,17 @@ def _base_equivalente(origine: pd.DataFrame) -> pd.DataFrame:
 
     La clé de comparaison est en minuscules, mais la base garde les valeurs
     d'origine : seule l'identité des lignes change, pas leur contenu.
+
+    Cette équivalence suit ce que le contrat déclare : là où les espaces ou la
+    casse portent un sens, deux lignes qui ne diffèrent que par eux sont deux
+    lignes, et seuls les marqueurs du contrat valent vide. Sans cela, le
+    vérificateur compterait comme « déjà vides en entrée » des valeurs que la
+    réparation n'a plus le droit de vider, et ne verrait pas leur destruction.
     """
+    marqueurs = marqueurs_de(contrat)
+    garde_espaces = bool(contrat and contrat.espaces_significatifs)
+    casse = ({c.nom for c in contrat.colonnes if c.casse_significative}
+             if contrat else set())
     vue = origine.copy()
     cle = pd.DataFrame(index=origine.index)
     for nom in origine.columns:
@@ -737,9 +811,10 @@ def _base_equivalente(origine: pd.DataFrame) -> pd.DataFrame:
             cle[nom] = s
             continue
         texte = s.where(s.isna(), s.astype(str))
-        vide = texte.notna() & est_vide(texte.fillna(""))
+        vide = texte.notna() & est_vide(texte.fillna(""), marqueurs)
         vue[nom] = s.mask(vide)
-        cle[nom] = texte.str.strip().str.lower().mask(vide)
+        k = texte if garde_espaces else texte.str.strip()
+        cle[nom] = (k if nom in casse else k.str.lower()).mask(vide)
     garder = ~cle.duplicated()
     return vue[garder].reset_index(drop=True)
 
@@ -779,7 +854,7 @@ def _perte_information(df: pd.DataFrame, origine: pd.DataFrame,
     # résulte comme des imputations. On compare donc à la base que le
     # vérificateur construit LUI-MÊME selon sa propre équivalence de lignes
     # (espaces, casse, marqueurs de vide) — sans rien demander au nettoyeur.
-    base = _base_equivalente(origine)
+    base = _base_equivalente(origine, contrat)
     francs = n_av - len(base)
     perdues = max(0, n_av - francs - n_ap)
     if n_av and perdues / n_av > contrat.lignes_perdues_max + 1e-9:

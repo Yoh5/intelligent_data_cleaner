@@ -35,17 +35,20 @@ l'analyse, et la colonne seule ne permet pas de les distinguer.
 
 ## Journaux de sécurité — `securite/`
 
-Quatre jeux réels, non versionnés eux non plus :
+Des jeux réels, non versionnés eux non plus :
 
 | fichier | origine | ce qu'il a trouvé |
 |---|---|---|
 | `openssh.csv` | Loghub, `OpenSSH/OpenSSH_2k.log_structured.csv` | **une date inventée** : la colonne `Time` (`06:55:46`) sortait en `2026-11-15 06:55:46`, la date du jour de l'exécution |
 | `apache.csv`, `linux.csv` | Loghub, `Apache/` et `Linux/`, mêmes fichiers `_2k.log_structured.csv` | rien de plus — ils servent de témoins |
-| `zeek-conn.log.gz` | brimdata/zed-sample-data, `zeek-default/conn.log.gz` (1 021 951 connexions) | le format natif de Zeek, lu depuis le 15/11 : 122 Mo décompressés, contrat tenu en 87 s. A montré que la forme IPv6 rejetait `fe80::215:17ff:fe84:c13f` |
+| `zeek-conn.log.gz` | brimdata/zed-sample-data, `zeek-default/conn.log.gz` (1 021 951 connexions) | le format natif de Zeek, lu depuis le 15/11 : 122 Mo décompressés, contrat tenu en 72 s. A montré que la forme IPv6 rejetait `fe80::215:17ff:fe84:c13f` |
 | `zeek-conn-20k.csv` | les 20 000 premières lignes du précédent, converties en CSV | **des codes détruits** : `history` passait de 119 à 102 valeurs, fusionnées « par la casse » alors que la majuscule y désigne l'initiateur du paquet |
 
+| `zeek/*.log.gz` | les 34 autres journaux du même dossier `zeek-default/` (`dns`, `http`, `ssl`, `files`, `ntp`, `ssh`… 17 Mo, 452 154 lignes) | **6 894 cellules réécrites**, trouvées en comparant la sortie à l'entrée cellule par cellule : l'URI `/` vidée 6 175 fois, `none`/`NULL`/`None` pris pour des vides, l'indentation de `loaded_scripts` rognée, un horodatage à 17 chiffres arrondi |
+
 Loghub : `https://raw.githubusercontent.com/logpai/loghub/master/<Jeu>/<Jeu>_2k.log_structured.csv`.
-Zeek : `https://github.com/brimdata/zed-sample-data/raw/main/zeek-default/conn.log.gz`.
+Zeek : `https://github.com/brimdata/zed-sample-data/raw/main/zeek-default/conn.log.gz` ;
+les 34 autres sont au même endroit (`<nom>.log.gz`), à déposer dans `securite/zeek/`.
 
 Dans les deux cas le contrat était déclaré **tenu, 100/100**. Ce sont ces
 fichiers qui ont montré que « ne rien inventer » n'était pas encore vrai pour

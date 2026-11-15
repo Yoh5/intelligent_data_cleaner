@@ -392,11 +392,12 @@ fichier, et la passe vérifie le journal contre ce qu'il dit de lui-même.
 |---|---|
 | `port` | entier dans 0–65535 — et non plus « 65534 hors de l'intervalle plausible », ce que disait l'écart interquartile |
 | `addr` | forme `ip` : IPv4 ou IPv6, vérifiée contre la bibliothèque standard |
-| `count`, `interval`, `time` | nombre positif ; l'horodatage garde ses six décimales |
-| `string`, `enum` | texte dont **la casse est significative** : aucune fusion |
-| `#unset_field` | le seul marqueur de vide reconnu, celui que le fichier déclare |
+| `count` | entier positif (non signé par définition) |
+| `interval`, `time`, `double` | nombre, **sans borne** : ce sont des doubles signés ; l'horodatage ressort au chiffre près |
+| `string`, `enum` | texte **pris à la lettre** : casse significative, espaces de bord gardés |
+| `#unset_field` | le seul marqueur de vide reconnu, celui que le fichier déclare — `/`, `none` ou `NULL` restent des valeurs |
 
-Mesuré sur le journal public complet : **1 021 950 connexions, 122 Mo, en 87 s**,
+Mesuré sur le journal public complet : **1 021 950 connexions, 122 Mo, en 72 s**,
 contrat tenu, 198 groupes de codes `history` laissés intacts. Trois choses
 trouvées en chemin :
 
@@ -414,6 +415,31 @@ trouvées en chemin :
 L'interface et l'API acceptent aussi `.log` et `.log.gz`, avec un plafond de
 25 Mo **après décompression** : soixante mégaoctets de zéros tiennent en
 soixante kilo-octets.
+
+### Trente-quatre autres journaux, comparés cellule par cellule
+
+`conn.log` tenait ; restait à savoir si le lecteur tenait ailleurs. Les 34
+autres journaux du même jeu public (`dns`, `http`, `ssl`, `files`, `ntp`…,
+452 154 lignes) sont passés sans un plantage — et un contrôle **extérieur à
+l'outil**, qui relit le fichier brut et compare chaque cellule livrée à la
+cellule reçue, a trouvé **6 894 cellules réécrites**, dont 636 dans des
+journaux déclarés « tenus, 100/100 » :
+
+| ce que la passe faisait | ce qu'elle fait |
+|---|---|
+| dans `http.log`, l'URI `/` était vidée **6 175 fois** : `/` figure dans la liste générale des marqueurs de vide. De même `none` (l'algorithme de compression de SSH), `NULL`, `None` | un contrat déclare ses propres marqueurs (`marqueurs_vides`) ; celui d'un journal n'en a aucun au-delà du `#unset_field` du fichier |
+| dans `loaded_scripts.log`, l'indentation de **506 lignes** était rognée, alors qu'elle dit la profondeur de chargement — verdict « tenu » | `espaces_significatifs` : dans un journal, rien n'est rogné |
+| `ntp.log` était déclaré fautif pour 110 valeurs négatives : j'avais imposé « positif » à `time` et `interval`, que Zeek définit comme des doubles signés | plus de borne que le fichier ne déclare pas |
+| `-2.1504318496896954e+09` ressortait `-2150431849.689696` : la lecture rapide de pandas n'est pas exacte au dernier chiffre, **sur n'importe quel fichier** | les nombres de plus de quinze chiffres sont relus avec `float()` |
+
+Après correction : **0 cellule modifiée** sur les 34 journaux entiers, tous
+tenus pour l'usage `tableau`. Pour l'usage `base`, 24 sur 34 échouent sur
+une seule clause, et elle est vraie : `uid` n'y identifie pas une ligne, et
+l'outil ne propose pas encore d'autre clé.
+
+La leçon dépasse Zeek : un verdict « tenu » rendu par l'outil sur sa propre
+sortie ne vaut que ce que vaut son équivalence de lignes. Le test
+`test_reel_chaque_cellule_livree_vaut_la_cellule_recue` ne lui demande rien.
 
 ---
 

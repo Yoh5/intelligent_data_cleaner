@@ -19,7 +19,10 @@ Trois choses que le format impose et qu'on respecte :
   `ShADTdtR` selon qui a envoyé le paquet. Aucune colonne de texte d'un journal
   Zeek ne voit ses graphies fusionnées ;
 - **tout est lu en texte** : l'horodatage `1521911721.255387` garde ses six
-  décimales, que la lecture en flottant arrondirait.
+  décimales, que la lecture en flottant arrondirait ;
+- **un texte se prend à la lettre** : pas d'autre marqueur de vide que celui du
+  fichier, pas d'espace rogné. Trente-quatre journaux réels ont montré que la
+  liste générale vidait l'URI `/` et l'algorithme `none`.
 
 Ce que le fichier ne déclare pas, et qu'on mesure donc : quelles colonnes
 peuvent être vides, et si `uid` identifie une ligne (vrai pour `conn.log`,
@@ -182,11 +185,13 @@ def _colonne(nom: str, type_zeek: str) -> ContratColonne:
         return ContratColonne(nom, "integer", minimum=0)
     if t == "int":
         return ContratColonne(nom, "integer")
-    if t in ("time", "interval"):
+    if t in ("time", "interval", "double"):
         # Secondes, en nombre : `time` est une date d'époque, qu'on ne convertit
         # pas en calendrier — le fuseau n'est écrit nulle part dans le journal.
-        return ContratColonne(nom, "number", minimum=0)
-    if t == "double":
+        # Aucune borne : ce sont des doubles SIGNÉS. Un `ntp.log` réel porte des
+        # dispersions négatives et des horodatages d'avant 1970 ; exiger
+        # « positif » le déclarait fautif sur une règle que le fichier n'écrit
+        # nulle part. Seuls `count` et `port` sont bornés par leur définition.
         return ContratColonne(nom, "number")
     if t == "bool":
         return ContratColonne(nom, "boolean")
@@ -206,7 +211,9 @@ def contrat(df: pd.DataFrame, entete: Entete,
     notes = [
         f"journal Zeek « {entete.chemin or '?'} » : les types viennent de la ligne "
         f"#types du fichier, ils ne sont pas inférés. Le non-renseigné est "
-        f"« {entete.non_renseigne} », comme le fichier le déclare.",
+        f"« {entete.non_renseigne} », comme le fichier le déclare, et c'est le seul : "
+        f"un texte comme « / », « none » ou « NULL » reste une valeur, et les "
+        f"espaces en bordure sont gardés.",
     ]
     colonnes: List[ContratColonne] = []
     n = len(df)
@@ -228,7 +235,12 @@ def contrat(df: pd.DataFrame, entete: Entete,
     ct = Contrat(colonnes=colonnes, usage=usage,
                  lignes_perdues_max=float(reglage["lignes_perdues_max"]),
                  imputation_max=0.0,
-                 cle_exigee=bool(reglage["exige_cle"]))
+                 cle_exigee=bool(reglage["exige_cle"]),
+                 # Un texte de journal se prend à la lettre : `/`, `none` ou
+                 # `NULL` y sont des valeurs observées, et l'indentation de
+                 # `loaded_scripts` aussi. Le seul vide est celui que le
+                 # fichier déclare, déjà posé à la lecture.
+                 marqueurs_vides=[], espaces_significatifs=True)
     vides = sorted(c.nom for c in colonnes if c.nullable)
     if vides:
         notes.append(f"champ(s) parfois non renseigné(s), laissés vides et jamais "

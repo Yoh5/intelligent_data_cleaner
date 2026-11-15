@@ -45,7 +45,7 @@ import numpy as np
 import pandas as pd
 
 from app.services.contract import (FORMES, MARQUEURS_VIDES, Contrat, casse_porteuse,
-                                   ContratColonne, convertir)
+                                   ContratColonne, convertir, marqueurs_de)
 
 #: Au-delà de cette part imputée, on ajoute une colonne indicatrice. Imputer
 #: sans trace rend une valeur inventée indiscernable d'une valeur observée ;
@@ -97,19 +97,25 @@ class Journal:
 # --------------------------------------------------------------------------- #
 # Les réparations, une par clause
 # --------------------------------------------------------------------------- #
-def vider_les_marqueurs(df: pd.DataFrame, j: Journal) -> pd.DataFrame:
+def vider_les_marqueurs(df: pd.DataFrame, j: Journal,
+                        marqueurs: frozenset = MARQUEURS_VIDES) -> pd.DataFrame:
     """« inconnu », « N/A », « - » deviennent de vrais vides.
 
     En premier, parce que c'est la réparation dont dépendent toutes les autres :
     un marqueur laissé en place se fait imputer comme une modalité.
+
+    `marqueurs` vient du contrat : un journal, par exemple, n'en déclare aucun
+    au-delà de son propre « non renseigné », déjà vidé à la lecture.
     """
+    if not marqueurs:
+        return df
     for col in df.columns:
         s = df[col]
         if pd.api.types.is_numeric_dtype(s) or \
                 pd.api.types.is_datetime64_any_dtype(s):
             continue
         masque = s.notna() & s.astype(str).str.strip().str.lower().isin(
-            MARQUEURS_VIDES)
+            marqueurs)
         n = int(masque.sum())
         if n:
             vus = sorted({str(v).strip() for v in s[masque]})[:3]
@@ -202,7 +208,10 @@ def nettoyer_le_texte(df: pd.DataFrame, contrat: Contrat,
         if pd.api.types.is_numeric_dtype(s):
             continue
         texte = s.where(s.isna(), s.astype(str))
-        coupe = texte.where(texte.isna(), texte.str.strip())
+        # Là où le contrat dit que les espaces font partie de la valeur, on
+        # ne rogne rien.
+        coupe = (texte if contrat.espaces_significatifs
+                 else texte.where(texte.isna(), texte.str.strip()))
         n = int((texte.notna() & (texte != coupe)).sum())
         if n:
             j.fait("espaces", cc.nom, f"{n} valeurs détourées", mesure=float(n))
@@ -476,7 +485,7 @@ def appliquer(df: pd.DataFrame, contrat: Contrat) -> tuple[pd.DataFrame, Journal
     """Les six passes, dans l'ordre, sur une copie."""
     j = Journal()
     d = df.copy()
-    d = vider_les_marqueurs(d, j)
+    d = vider_les_marqueurs(d, j, marqueurs_de(contrat))
     # Les hors-forme juste après : une adresse invalide laissée en place est
     # une modalité, et une modalité peut empoisonner un mode.
     d = vider_les_hors_forme(d, contrat, j)

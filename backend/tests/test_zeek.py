@@ -94,12 +94,13 @@ def test_le_contrat_traduit_les_types_declares():
     df, entete = zeek.lire(journal())
     ct, notes = zeek.contrat(df, entete, "base")
     c = ct.par_nom()
-    assert (c["ts"].type, c["ts"].minimum) == ("number", 0)
+    assert (c["ts"].type, c["ts"].minimum) == ("number", None)     # double signé
     assert (c["id_orig_p"].type, c["id_orig_p"].minimum, c["id_orig_p"].maximum) == ("integer", 0, 65535)
     assert (c["id_orig_h"].type, c["id_orig_h"].forme) == ("string", "ip")
     assert c["proto"].type == "category" and c["local_orig"].type == "boolean"
     assert (c["orig_bytes"].type, c["orig_bytes"].minimum) == ("integer", 0)
-    assert (c["duration"].type, c["duration"].minimum) == ("number", 0)
+    assert (c["duration"].type, c["duration"].minimum) == ("number", None)
+    assert ct.marqueurs_vides == [] and ct.espaces_significatifs
     # la casse d'un champ Zeek n'est jamais une faute de frappe
     assert c["history"].casse_significative and c["uid"].casse_significative
     assert ct.cle_primaire == ["uid"] and ct.cle_exigee
@@ -258,3 +259,146 @@ def test_une_borne_absente_ne_secrit_pas_none():
     assert not any("None" in g for g in res["enonce"]["garanti"])
     assert any("ne descend jamais sous 0" in g for g in res["enonce"]["garanti"])
     assert any("[0, 65535]" in g for g in res["enonce"]["garanti"])
+
+
+# --------------------------------------------------------------------------- #
+# Les 34 autres journaux : un texte de journal se prend à la lettre
+# --------------------------------------------------------------------------- #
+# Passer dns, http, ssh, ntp… a montré que la passe réécrivait 6 894 cellules,
+# dont 636 dans des journaux déclarés « tenus 100/100 ». Chaque test ci-dessous
+# porte une valeur réelle relevée dans ces fichiers.
+import csv                                     # noqa: E402
+
+from app.services import reparer               # noqa: E402
+
+ZEEK = SECURITE / "zeek"
+NUMERIQUES = {"count", "int", "port", "time", "interval", "double"}
+
+
+def journal_de(chemin: str, champs: str, types: str, lignes) -> bytes:
+    entete = ("#separator \\x09\n#set_separator\t,\n#empty_field\t(empty)\n#unset_field\t-\n"
+              f"#path\t{chemin}\n#fields\t{champs}\n#types\t{types}\n")
+    return (entete + "\n".join(lignes) + "\n#close\t2024-04-12-19-34-07\n").encode()
+
+
+def cellules(res) -> list:
+    """Le CSV livré, relu **sans** l'interprétation de pandas : `none` y
+    redeviendrait un vide et le test ne verrait rien."""
+    texte = base64.b64decode(res["csv_base64"]).decode("utf-8")
+    return list(csv.reader(io.StringIO(texte, newline="")))[1:]
+
+
+def test_un_texte_qui_ressemble_a_un_vide_reste_une_valeur():
+    # http.log : l'URI « / », vidée 6 175 fois. ssh.log : l'algorithme de
+    # compression « none ». ntlm.log : la machine « NULL ». rfb.log : « None ».
+    lignes = [f"152191172{i}.0\tC{i}\t{v}" for i, v in enumerate(
+        ["/", "none", "NULL", "None", "unknown", "?", "/index.html", "-"])]
+    res = asyncio.run(agent_contrat.run(
+        journal_de("http", "ts\tuid\turi", "time\tstring\tstring", lignes), "http.log", usage="tableau"))
+    assert [l[2] for l in cellules(res)] == ["/", "none", "NULL", "None", "unknown", "?", "/index.html", ""]
+    assert res["contrat_tenu"], res["enonce"]["non_garanti"]
+    assert not any("reconnues comme vides" in f for f in res["enonce"]["fait"])
+
+
+def test_les_espaces_de_bord_dun_journal_sont_gardes():
+    # loaded_scripts.log : l'indentation dit la profondeur de chargement.
+    lignes = ["/opt/zeek/base/init-bare.zeek", "  /opt/zeek/base/bif/const.bif.zeek",
+              "    /opt/zeek/base/bif/types.bif.zeek", "Access is denied. "]
+    res = asyncio.run(agent_contrat.run(
+        journal_de("loaded_scripts", "name", "string", lignes), "loaded_scripts.log", usage="tableau"))
+    assert [l[0] for l in cellules(res)] == lignes
+    assert not any("détourées" in f for f in res["enonce"]["fait"])
+
+
+def test_un_intervalle_ou_une_date_negative_ne_sont_pas_des_fautes():
+    # ntp.log : `interval` et `time` sont des doubles signés. « Positif »
+    # n'était écrit nulle part dans le fichier : c'était une supposition.
+    champs, types = "ts\troot_disp\txmt_time\tnum", "time\tinterval\ttime\tcount"
+    lignes = ["1521911721.0\t-0.000244\t-2150431849.5\t12", "1521911722.0\t0.5\t1521911722.1\t3"]
+    res = asyncio.run(agent_contrat.run(journal_de("ntp", champs, types, lignes), "ntp.log", usage="tableau"))
+    assert res["contrat_tenu"], res["enonce"]["non_garanti"]
+    # un `count`, lui, est non signé par définition
+    faux = journal_de("ntp", champs, types, lignes + ["1521911723.0\t0.1\t1.0\t-4"])
+    res = asyncio.run(agent_contrat.run(faux, "ntp.log", usage="tableau"))
+    assert any("num" in v and "sous 0" in v for v in res["enonce"]["non_garanti"])
+
+
+def test_un_nombre_a_17_chiffres_ressort_au_chiffre_pres():
+    # ntp.log : -2.1504318496896954e+09 ressortait -2150431849.689696.
+    # La lecture rapide de pandas n'est pas exacte au dernier chiffre.
+    for texte in ["-2.1504318496896954e+09", "1521911721.2553871", "0.1", "1e22", "123456789012345678"]:
+        s = pd.Series([texte, None, "1.5"], dtype=object)
+        assert C.convertir(s, "number")[0] == float(texte), texte
+        assert C._numerique(s)[0] == float(texte), texte
+
+
+def test_un_grand_entier_a_cote_dun_vide_garde_ses_chiffres():
+    # Passer par un flottant pour loger le vide arrondit au-delà de 2^53.
+    s = pd.Series(["9007199254740993", None, "12"], dtype=object)
+    c = C.convertir(s, "integer")
+    assert int(c[0]) == 9007199254740993 and pd.isna(c[1]) and int(c[2]) == 12
+
+
+def test_un_contrat_peut_declarer_ses_propres_marqueurs_de_vide():
+    df = pd.DataFrame({"n": ["1", "2", "3", "4"], "algo": ["none", "N/A", "zlib", "inconnu"]}, dtype=object)
+    ct = C.Contrat(colonnes=[C.ContratColonne("n", "integer"),
+                             C.ContratColonne("algo", "string", taux_nul_max=0.5)],
+                   marqueurs_vides=["n/a"], imputation_max=0.0)
+    propre, _ = reparer.appliquer(df, ct)
+    assert propre["algo"].tolist()[0] == "none" and pd.isna(propre["algo"][1])
+    assert propre["algo"].tolist()[3] == "inconnu"
+    assert C.verify(propre, ct, origine=df).tient
+    # sans déclaration, la liste générale s'applique comme avant
+    ancien = C.Contrat.from_dict({"colonnes": [{"nom": "n", "type": "integer"}, {"nom": "algo"}], "imputation_max": 0.0})
+    assert ancien.marqueurs_vides is None and not ancien.espaces_significatifs
+    propre, _ = reparer.appliquer(df, ancien)
+    assert propre["algo"].isna().tolist() == [True, True, False, True]
+
+
+def test_une_valeur_videe_dans_un_journal_reste_bloquante():
+    # Le garde-fou ne doit pas s'être relâché : une adresse impossible est
+    # vidée par la réparation, et le vérificateur doit toujours le voir.
+    lignes = ["1521911721.0\tC1\t10.0.0.1", "1521911722.0\tC2\t999.1.2.3", "1521911723.0\tC3\tnone"]
+    res = asyncio.run(agent_contrat.run(
+        journal_de("x", "ts\tuid\thote", "time\tstring\taddr", lignes), "x.log", usage="tableau"))
+    assert not res["contrat_tenu"] and res["score_apres"] <= C.PLAFOND_BLOQUANT
+
+
+def _egal(a: str, b: str, type_zeek: str) -> bool:
+    from decimal import Decimal, InvalidOperation
+    if a == "-":
+        return b == ""
+    if type_zeek in NUMERIQUES:
+        try:
+            return Decimal(a) == Decimal(b)
+        except InvalidOperation:
+            return False
+    if type_zeek == "bool":
+        return (a, b) in (("T", "True"), ("F", "False"))
+    return a == b
+
+
+JOURNAUX = sorted(ZEEK.glob("*.log.gz")) if ZEEK.exists() else []
+
+
+@pytest.mark.skipif(not JOURNAUX, reason="corpus-public/securite/zeek absent — voir le README")
+@pytest.mark.parametrize("fichier", JOURNAUX, ids=lambda f: f.name[:-7])
+def test_reel_chaque_cellule_livree_vaut_la_cellule_recue(fichier):
+    """Les 5 000 premières lignes de chaque journal : contrat tenu, et pas une
+    cellule changée. Le contrôle relit le fichier brut lui-même et ne consulte
+    ni le rapport ni le journal de réparation."""
+    with gzip.open(fichier, "rb") as g:
+        contenu = b"".join(l for _, l in zip(range(5008), g))
+    lignes, types = [], []
+    for l in contenu.decode("utf-8", errors="replace").split("\n"):
+        if l.startswith("#types"):
+            types = l.split("\t")[1:]
+        elif l and not l.startswith("#"):
+            lignes.append(l.split("\t"))
+    res = asyncio.run(agent_contrat.run(contenu, fichier.name, usage="tableau"))
+    sortie = cellules(res)
+    assert len(sortie) == len(lignes)
+    ecarts = [(i, j, a, b) for i, (la, lb) in enumerate(zip(lignes, sortie))
+              for j, (a, b) in enumerate(zip(la, lb)) if not _egal(a, b, types[j])]
+    assert not ecarts, f"{len(ecarts)} cellule(s) changée(s), par exemple {ecarts[:3]}"
+    assert res["contrat_tenu"], res["enonce"]["non_garanti"]
