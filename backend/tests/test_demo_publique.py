@@ -49,11 +49,16 @@ def test_en_demo_publique_l_execution_de_script_n_existe_pas(monkeypatch):
     assert m.settings.OPENAI_API_KEY == ""            # la clé est ignorée en démo
 
 
+# On interroge l'API comme un client, sans lire app.routes : à partir de FastAPI 0.163
+# les routeurs inclus y apparaissent comme des _IncludedRouter sans chemin, et un test
+# fondé sur cette structure interne cassait en CI (16/11/2026).
 def test_hors_demo_la_route_existe(monkeypatch):
     m = _app(monkeypatch, demo=False)
-    assert any(getattr(r, "path", "").startswith("/execute") for r in m.app.routes)
+    r = TestClient(m.app).post("/execute/", files={"file": ("a.csv", b"x\n1\n")},
+                               data={"script": "import os"})
+    assert r.status_code != 404                     # la route répond (et refuse le script)
 
 
 def test_le_controle_de_fichier_reste_disponible_en_demo(monkeypatch):
     m = _app(monkeypatch, demo=True)
-    assert any("/contract" in getattr(r, "path", "") for r in m.app.routes)
+    assert TestClient(m.app).get("/contract-clean/usages").status_code == 200
