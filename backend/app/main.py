@@ -53,7 +53,9 @@ app.include_router(analyze.router)
 app.include_router(suggest.router)
 app.include_router(generate.router)
 app.include_router(auto_clean.router)
-app.include_router(execute.router)
+if not settings.DEMO_PUBLIQUE:
+    # Exécute un script fourni par le client : jamais sur un serveur public.
+    app.include_router(execute.router)
 app.include_router(agent_clean.router)
 app.include_router(contract_clean.router)
 app.include_router(prepare.router)

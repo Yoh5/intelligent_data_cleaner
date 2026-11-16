@@ -1,0 +1,21 @@
+# Démo publique de l'API sur Render (Blueprint : New > Blueprint, puis ce dépôt).
+#
+# DEMO_PUBLIQUE=true : la route /execute (script envoyé par le client) n'est pas
+# montée, et aucun LLM n'est appelé — aucune clé n'est à fournir ici, volontairement.
+# L'offre gratuite se met en veille : la première requête prend ~40 s.
+services:
+  - type: web
+    name: idc-api
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: DEMO_PUBLIQUE
+        value: "true"
+      - key: CORS_ORIGINS
+        value: '["https://intelligent-data-cleaner-demo.netlify.app"]'
