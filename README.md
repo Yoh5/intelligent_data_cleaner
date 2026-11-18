@@ -14,7 +14,7 @@ la liste de ce qu'elle n'a pas pu faire.
 ![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-green.svg)
 ![Next.js](https://img.shields.io/badge/Next.js-16+-black.svg)
-![tests](https://img.shields.io/badge/tests-254-brightgreen.svg)
+![tests](https://img.shields.io/badge/tests-353-brightgreen.svg)
 
 ---
 
